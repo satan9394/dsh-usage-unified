@@ -37,8 +37,13 @@ index now feeds one dashboard, so the numbers agree everywhere.
 ## Install
 
 ```powershell
+# straight from GitHub (builds `lib/` on install via the `prepare` script):
+dsh plugin --profile web add github:satan9394/dsh-usage-unified
+
+# from an npm release, once published:
 dsh plugin --profile web add dsh-usage-unified
-# or from a local checkout:
+
+# from a local checkout:
 dsh plugin --profile web add E:\path\to\dsh-usage-merged
 ```
 
