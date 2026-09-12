@@ -6,9 +6,19 @@ nothing. Putting your machine's combined usage on the
 [tokscale](https://github.com/junhoyeo/tokscale) leaderboard is a separate,
 **opt-in** step.
 
-Run the guided setup:
+There are two ways to use this project:
+
+| Goal | How |
+| --- | --- |
+| Local dashboard (default) | `dsh plugin --profile web add dsh-usage-unified` — no network, no upload |
+| Leaderboard (opt-in) | clone this repo and run the guided setup below |
+
+The leaderboard helpers live in `scripts/`, so run them from a checkout:
 
 ```powershell
+git clone https://github.com/satan9394/dsh-usage-unified
+cd dsh-usage-unified
+npm install
 npm run leaderboard:setup
 ```
 

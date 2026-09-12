@@ -131,9 +131,12 @@ The dashboard here is **DSH-only** and works entirely offline — installing the
 plugin never contacts the network and never uploads anything. Aggregating every
 agent on the machine (DSH, Claude Code, Codex, OpenCode, …) into one number and
 posting it to the [tokscale](https://github.com/junhoyeo/tokscale) leaderboard
-is **opt-in** and only happens if you run the guided setup:
+is **opt-in** and only happens if you run the guided setup **from a clone** of
+this repo (the plugin itself never needs it):
 
 ```powershell
+git clone https://github.com/satan9394/dsh-usage-unified && cd dsh-usage-unified
+npm install
 npm run leaderboard:setup     # guided: install/login tokscale, export, first submit
 npm run leaderboard:off       # undo: remove the daily task, stop submitting
 ```
