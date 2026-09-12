@@ -1,0 +1,15 @@
+node_modules/
+lib/
+dist/
+*.log
+_upstream/
+.vitest/
+coverage/
+.smoke-cache/
+report-*.html
+logs/
+.tokscale-home/
+.ccswitch-home/
+tokscale-wrapped.png
+tokscale-embed.svg
+tokscale-badge.svg
