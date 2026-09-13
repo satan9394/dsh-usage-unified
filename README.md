@@ -44,7 +44,7 @@ dsh plugin --profile web add github:satan9394/dsh-usage-unified
 dsh plugin --profile web add dsh-usage-unified
 
 # from a local checkout:
-dsh plugin --profile web add E:\path\to\dsh-usage-merged
+dsh plugin --profile web add E:\path\to\dsh-usage-unified
 ```
 
 Restart the Web profile. The dashboard appears as a **使用统计 / Usage Stats**
