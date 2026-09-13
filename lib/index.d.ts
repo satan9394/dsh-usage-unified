@@ -408,6 +408,9 @@ interface StoreQuery {
   range: RangeId;
   scope: TaskScope;
   workspace?: string;
+  /** Explicit inclusive day bounds; when both are set they override `range`. */
+  from?: string;
+  to?: string;
 }
 /** Query for the call-detail route. */
 interface StoreCallsQuery extends StoreQuery {

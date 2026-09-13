@@ -127,6 +127,9 @@ export interface StoreQuery {
   range: RangeId
   scope: TaskScope
   workspace?: string
+  /** Explicit inclusive day bounds; when both are set they override `range`. */
+  from?: string
+  to?: string
 }
 
 /** Query for the call-detail route. */
@@ -234,12 +237,14 @@ export class UnifiedIndexStore {
   snapshot(query: StoreQuery): Snapshot {
     const now = this.now()
     const today = todayKey(this.meta.tz, now)
-    const bounds = query.range === 'all' ? { from: '', to: today } : rangeBounds(query.range, today)
+    const custom = query.from !== undefined && query.to !== undefined
+    const bounds = custom ? { from: query.from!, to: query.to! } : (query.range === 'all' ? { from: '', to: today } : rangeBounds(query.range, today))
+    const rangeId: RangeId = custom ? '30d' : query.range
     const snapshotQuery: SnapshotQuery = {
       from: bounds.from,
       to: bounds.to,
       timeZone: this.meta.tz,
-      range: query.range,
+      range: rangeId,
       scope: query.scope,
       now,
       ...(query.workspace === undefined ? {} : { workspace: query.workspace }),
@@ -272,12 +277,13 @@ export class UnifiedIndexStore {
   calls(query: StoreCallsQuery): CallsPage {
     const now = this.now()
     const today = todayKey(this.meta.tz, now)
-    const bounds = query.range === 'all' ? { from: '', to: today } : rangeBounds(query.range, today)
+    const custom = query.from !== undefined && query.to !== undefined
+    const bounds = custom ? { from: query.from!, to: query.to! } : (query.range === 'all' ? { from: '', to: today } : rangeBounds(query.range, today))
     const filter: CallsQuery = {
       from: bounds.from,
       to: bounds.to,
       timeZone: this.meta.tz,
-      range: query.range,
+      range: custom ? '30d' : query.range,
       scope: query.scope,
       now,
       maxRecords: query.maxRecords,

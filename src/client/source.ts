@@ -28,14 +28,30 @@ function commonParams(range: RangeId, scope: TaskScope, workspace: string): URLS
   return params
 }
 
+/** Explicit inclusive day bounds for a custom range. */
+export interface CustomRange {
+  from: string
+  to: string
+}
+
+function withCustom(params: URLSearchParams, custom?: CustomRange): URLSearchParams {
+  if (custom !== undefined) {
+    params.set('from', custom.from)
+    params.set('to', custom.to)
+  }
+  return params
+}
+
 /** Fetch the dashboard snapshot for one window. */
 export async function fetchSnapshot(
   range: RangeId,
   scope: TaskScope,
   workspace: string,
   signal: AbortSignal,
+  custom?: CustomRange,
 ): Promise<Snapshot> {
-  const response = await fetch(`${API_PATH}/snapshot?${commonParams(range, scope, workspace)}`, {
+  const params = withCustom(commonParams(range, scope, workspace), custom)
+  const response = await fetch(`${API_PATH}/snapshot?${params}`, {
     signal,
     headers: { accept: 'application/json' },
   })
@@ -60,11 +76,12 @@ export interface CallsRequest {
   page: number
   pageSize: number
   maxRecords: number
+  custom?: CustomRange
 }
 
 /** Fetch one page of call rows. */
 export async function fetchCalls(request: CallsRequest, signal: AbortSignal): Promise<CallsPage> {
-  const params = commonParams(request.range, request.scope, request.workspace)
+  const params = withCustom(commonParams(request.range, request.scope, request.workspace), request.custom)
   params.set('page', String(request.page))
   params.set('pageSize', String(request.pageSize))
   params.set('maxRecords', String(request.maxRecords))
@@ -79,6 +96,6 @@ export async function fetchCalls(request: CallsRequest, signal: AbortSignal): Pr
 }
 
 /** Same-origin download URL for a CSV/JSON export of the current window. */
-export function exportUrl(range: RangeId, scope: TaskScope, workspace: string, format: 'csv' | 'json'): string {
-  return `${API_PATH}/export.${format}?${commonParams(range, scope, workspace)}`
+export function exportUrl(range: RangeId, scope: TaskScope, workspace: string, format: 'csv' | 'json', custom?: CustomRange): string {
+  return `${API_PATH}/export.${format}?${withCustom(commonParams(range, scope, workspace), custom)}`
 }

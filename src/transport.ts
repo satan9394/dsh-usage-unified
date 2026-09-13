@@ -49,10 +49,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 const RANGES = new Set<RangeId>(['all', 'year', '30d', '7d'])
 const SCOPES = new Set<TaskScope>(['all', 'main', 'subtasks'])
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
 interface ParsedCommon {
   range: RangeId
   scope: TaskScope
   workspace?: string
+  from?: string
+  to?: string
 }
 
 function parseCommon(url: URL): ParsedCommon {
@@ -64,8 +68,14 @@ function parseCommon(url: URL): ParsedCommon {
   if (rawWorkspace !== undefined && (rawWorkspace.length === 0 || rawWorkspace.length > 4096)) {
     throw new Error('Invalid workspace filter')
   }
+  const rawFrom = url.searchParams.get('from') ?? undefined
+  const rawTo = url.searchParams.get('to') ?? undefined
+  if (rawFrom !== undefined && !ISO_DATE.test(rawFrom)) throw new Error('Invalid from date')
+  if (rawTo !== undefined && !ISO_DATE.test(rawTo)) throw new Error('Invalid to date')
+  if (rawFrom !== undefined && rawTo !== undefined && rawFrom > rawTo) throw new Error('Invalid date range')
   const parsed: ParsedCommon = { range: range as RangeId, scope: scope as TaskScope }
   if (rawWorkspace !== undefined) parsed.workspace = rawWorkspace
+  if (rawFrom !== undefined && rawTo !== undefined) { parsed.from = rawFrom; parsed.to = rawTo }
   return parsed
 }
 

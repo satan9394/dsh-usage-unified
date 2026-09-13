@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import type { CallRecord, CallsPage, ModelStats, RangeId, Snapshot, TaskScope } from '../types.ts'
 import type { ClientContextLike } from './runtime.d.ts'
 import { formatDateLabel, formatHour, installLocale, NS, useLocale, type I18nKey } from './i18n.ts'
-import { exportUrl, fetchCalls, fetchSnapshot } from './source.ts'
+import { exportUrl, fetchCalls, fetchSnapshot, type CustomRange } from './source.ts'
 import { styles } from './styles.ts'
 
 export const inject = ['slots', 'locale']
@@ -66,6 +66,13 @@ function compact(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, { notation: value >= 10_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value)
 }
 
+/** Local 'YYYY-MM-DD' shifted by whole days — the custom-range defaults. */
+function localDate(offset = 0): string {
+  const date = new Date()
+  date.setDate(date.getDate() + offset)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 function Card({ icon, label, value, detail, accent, hero, spark }: { icon: IconName; label: string; value: ReactNode; detail?: string | undefined; accent?: string; hero?: boolean; spark?: ReactNode }): ReactNode {
   return <article className="us-card" data-hero={hero ? 'true' : undefined} style={accent === undefined ? undefined : ({ '--us-accent-card': accent } as React.CSSProperties)}>{hero && <span className="us-sheen" aria-hidden="true" />}<div className="us-card-label"><Icon name={icon} size={16} />{label}</div><div className="us-card-value">{value}</div>{detail && <div className="us-card-detail" title={detail}>{detail}</div>}{spark}</article>
 }
@@ -102,6 +109,32 @@ function SelectControl({ label, triggerLabel, value, options, onChange, classNam
 }
 
 
+/** A zeroed day, used to gap-fill sparse all-time series before charting. */
+function emptyDay(date: string): Snapshot['days'][number] {
+  return { date, tokens: 0, calls: 0, messages: 0, sessions: 0, models: {}, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
+}
+
+/**
+ * Gap-fill a sparse day list (the all-time range returns only active days) so
+ * the trend chart has one point per calendar day; falls back to the raw list
+ * when the span would exceed `max` points.
+ */
+function gapFillDays(raw: Snapshot['days'], max = 400): Snapshot['days'] {
+  if (raw.length < 2) return raw
+  const first = raw[0]!.date
+  const last = raw[raw.length - 1]!.date
+  const byDate = new Map(raw.map(day => [day.date, day]))
+  const out: Snapshot['days'] = []
+  const cursor = new Date(`${first}T00:00:00Z`)
+  const end = new Date(`${last}T00:00:00Z`)
+  while (cursor <= end && out.length <= max) {
+    const key = cursor.toISOString().slice(0, 10)
+    out.push(byDate.get(key) ?? emptyDay(key))
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return out.length > max ? raw : out
+}
+
 interface TrendSeries {
   id: 'total' | 'input' | 'output' | 'cache'
   label: string
@@ -115,7 +148,7 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
   const [off, setOff] = useState<Record<string, boolean>>({})
   const [hover, setHover] = useState<number | null>(null)
   const [tipAt, setTipAt] = useState<{ x: number; y: number } | null>(null)
-  const days = snapshot.days
+  const days = useMemo(() => gapFillDays(snapshot.days), [snapshot.days])
   const W = 1000
   const H = 380
   const padL = 56
@@ -283,7 +316,7 @@ function initialMaxRecords(): number {
   }
 }
 
-function CallsPanel({ snapshot, range, scope, workspace }: { snapshot: Snapshot; range: RangeId; scope: TaskScope; workspace: string }): ReactNode {
+function CallsPanel({ snapshot, range, scope, workspace, custom }: { snapshot: Snapshot; range: RangeId; scope: TaskScope; workspace: string; custom?: CustomRange | undefined }): ReactNode {
   const { t, numberLocale } = useLocale()
   const [page, setPage] = useState(1)
   const [model, setModel] = useState('')
@@ -310,11 +343,11 @@ function CallsPanel({ snapshot, range, scope, workspace }: { snapshot: Snapshot;
   useEffect(() => {
     const abort = new AbortController()
     setError(null)
-    fetchCalls({ range, scope, workspace, model, provider, minInputTokens: debouncedMinInput, minOutputTokens: debouncedMinOutput, page, pageSize, maxRecords }, abort.signal)
+    fetchCalls({ range, scope, workspace, model, provider, minInputTokens: debouncedMinInput, minOutputTokens: debouncedMinOutput, page, pageSize, maxRecords, ...(custom === undefined ? {} : { custom }) }, abort.signal)
       .then(setData)
       .catch((reason: unknown) => { if ((reason as { name?: string }).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { abort.abort() }
-  }, [range, scope, workspace, model, provider, debouncedMinInput, debouncedMinOutput, page, pageSize, maxRecords])
+  }, [range, scope, workspace, model, provider, debouncedMinInput, debouncedMinOutput, page, pageSize, maxRecords, custom])
   const modelOptions = useMemo(() => ['', ...new Set((snapshot.models ?? []).map(item => item.model))], [snapshot.models])
   const providerOptions = useMemo(() => ['', ...new Set((snapshot.models ?? []).map(item => item.provider))], [snapshot.models])
   const hasFilters = model !== '' || provider !== '' || minInput !== '' || minOutput !== ''
@@ -374,16 +407,17 @@ const RANGE_OPTIONS: readonly { value: RangeId; label: I18nKey }[] = [
 function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: boolean }): ReactNode {
   const { t, numberLocale } = useLocale()
   const [range, setRange] = useState<RangeId>('30d')
+  const [custom, setCustom] = useState<CustomRange | null>(null)
   const [scope, setScope] = useState<TaskScope>('all')
   const [workspace, setWorkspace] = useState('')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback((signal: AbortSignal) => {
     setError(null)
-    fetchSnapshot(range, scope, workspace, signal)
+    fetchSnapshot(range, scope, workspace, signal, custom ?? undefined)
       .then(setSnapshot)
       .catch((reason: unknown) => { if ((reason as { name?: string }).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)) })
-  }, [range, scope, workspace])
+  }, [range, scope, workspace, custom])
   useEffect(() => { const abort = new AbortController(); refresh(abort.signal); return () => { abort.abort() } }, [refresh])
   useEffect(() => {
     if (hide === undefined) return
@@ -418,19 +452,20 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
           ? <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{snapshot.allTime.mostUsedModel.model}</span>} detail={`${snapshot.allTime.mostUsedModel.percent.toFixed(1)}% · ${snapshot.allTime.mostUsedModel.provider}`} accent="#65a9ff" />
           : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} accent="#65a9ff" />}
       </div>
-      {range !== 'all' && <SmoothTrend snapshot={snapshot} />}
+      <SmoothTrend snapshot={snapshot} />
       <ModelUsage snapshot={snapshot} />
       <BucketBars models={snapshot.models} />
       <Breakdown snapshot={snapshot} />
-      <CallsPanel snapshot={snapshot} range={range} scope={scope} workspace={workspace} />
+      <CallsPanel snapshot={snapshot} range={range} scope={scope} workspace={workspace} custom={custom ?? undefined} />
       <Footer snapshot={snapshot} />
     </>
   const toolbar: ReactNode = <>
-    <div className="us-range-row"><span className="us-range-label">{t('rangeLabel')}</span><div className="us-segment" aria-label={t('rangeLabel')}>{RANGE_OPTIONS.map(option => <button key={option.value} aria-pressed={range === option.value} onClick={() => setRange(option.value)}>{t(option.label)}</button>)}</div></div>
+    <div className="us-range-row"><span className="us-range-label">{t('rangeLabel')}</span><div className="us-segment" aria-label={t('rangeLabel')}>{RANGE_OPTIONS.map(option => <button key={option.value} aria-pressed={custom === null && range === option.value} onClick={() => { setCustom(null); setRange(option.value) }}>{t(option.label)}</button>)}<button aria-pressed={custom !== null} onClick={() => setCustom(current => current ?? { from: localDate(-29), to: localDate() })}>{t('customRange')}</button></div></div>
+    {custom !== null && <div className="us-custom-range"><input type="date" value={custom.from} max={custom.to} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, from: value }) }} /><span>→</span><input type="date" value={custom.to} min={custom.from} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, to: value }) }} /></div>}
     <div className="us-toolbar us-filterbar">
       <SelectControl label={t('workspace')} value={workspace} options={workspaceOptions} onChange={setWorkspace} />
       <SelectControl label={t('taskScope')} value={scope} options={scopeOptions} onChange={value => setScope(value as TaskScope)} />
-      <span className="us-spacer" /><a className="us-export" href={exportUrl(range, scope, workspace, 'csv')}><Icon name="download" size={15} />CSV</a><a className="us-export" href={exportUrl(range, scope, workspace, 'json')}><Icon name="download" size={15} />JSON</a>
+      <span className="us-spacer" /><a className="us-export" href={exportUrl(range, scope, workspace, 'csv', custom ?? undefined)}><Icon name="download" size={15} />CSV</a><a className="us-export" href={exportUrl(range, scope, workspace, 'json', custom ?? undefined)}><Icon name="download" size={15} />JSON</a>
     </div>
   </>
   if (embedded) {
