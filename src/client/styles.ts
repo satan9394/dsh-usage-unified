@@ -95,7 +95,7 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-trend-legend button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border: 1px solid var(--us-border); border-radius: 999px; background: var(--us-raised); color: var(--us-text); font: inherit; font-size: 12px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, opacity 140ms ease; }
 .us-trend-legend button[aria-pressed="false"] { opacity: .5; }
 .us-trend-legend i { width: 9px; height: 9px; border-radius: 3px; background: var(--us-series); flex: none; }
-.us-trend-tip { position: absolute; z-index: 30; min-width: 172px; padding: 9px 11px; border: 1px solid var(--us-border); border-radius: 10px; background: color-mix(in srgb, var(--us-raised) 96%, transparent); box-shadow: 0 14px 38px rgba(0,0,0,.16); color: var(--us-text); font-size: 12px; backdrop-filter: blur(12px); pointer-events: none; transform: translate(-50%, -108%); }
+.us-trend-tip { position: fixed; z-index: 30; min-width: 172px; padding: 9px 11px; border: 1px solid var(--us-border); border-radius: 10px; background: color-mix(in srgb, var(--us-raised) 96%, transparent); box-shadow: 0 14px 38px rgba(0,0,0,.16); color: var(--us-text); font-size: 12px; backdrop-filter: blur(12px); pointer-events: none; transform: translate(-50%, -108%); }
 .us-trend-tip b { display: block; margin-bottom: 5px; }
 .us-trend-tip div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
 .us-trend-tip i { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }

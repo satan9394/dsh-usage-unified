@@ -101,44 +101,6 @@ function SelectControl({ label, triggerLabel, value, options, onChange, classNam
   </div>
 }
 
-function Heatmap({ snapshot }: { snapshot: Snapshot }): ReactNode {
-  const { t, lang, numberLocale } = useLocale()
-  const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)
-  const all = snapshot.days
-  const active = (day: Snapshot['days'][number]): boolean => day.tokens > 0 || day.calls > 0
-  const firstActive = all.findIndex(active)
-  let lastActive = -1
-  for (let i = all.length - 1; i >= 0; i -= 1) { const day = all[i]; if (day !== undefined && active(day)) { lastActive = i; break } }
-  // Trim to the weeks that actually hold activity (a fixed 53-week grid is
-  // mostly empty for a young history); fall back to the last week when empty.
-  const startIndex = firstActive < 0 ? Math.max(0, all.length - 7) : firstActive
-  const endIndex = lastActive < 0 ? all.length - 1 : lastActive
-  const startDate = all[startIndex]?.date ?? ''
-  const mondayOffset = startDate === '' ? 0 : (new Date(`${startDate}T12:00:00`).getDay() + 6) % 7
-  const days = all.slice(Math.max(0, startIndex - mondayOffset), endIndex + 1)
-  const weeks = Math.max(1, Math.ceil(days.length / 7))
-  const max = Math.max(1, ...days.map(day => day.tokens))
-  const level = (tokens: number): number => tokens === 0 ? 0 : Math.max(1, Math.min(5, Math.ceil(Math.log1p(tokens) / Math.log1p(max) * 5)))
-  const monthOf = (date: string): string => lang === 'zh'
-    ? `${Number(date.slice(5, 7))}月`
-    : new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date(`${date}T12:00:00`))
-  const columns = `repeat(${weeks}, minmax(0, 13px))`
-  const monthLabels = Array.from({ length: weeks }, (_, week) => {
-    const day = days[week * 7]
-    if (day === undefined) return ''
-    const month = day.date.slice(5, 7)
-    const previous = week > 0 ? days[(week - 1) * 7]?.date.slice(5, 7) : undefined
-    return month === previous ? '' : monthOf(day.date)
-  })
-  const showTip = (target: HTMLElement, text: string): void => {
-    const rect = target.getBoundingClientRect()
-    setTip({ x: Math.min(window.innerWidth - 150, Math.max(150, rect.left + rect.width / 2)), y: rect.top - 10, text })
-  }
-  return <><section className="us-panel us-heat-panel"><div className="us-panel-head"><span className="us-panel-title">{t('heatmap')}</span><span className="us-panel-note us-heat-legend"><span>{t('less')}</span>{[0, 1, 2, 3, 4, 5].map(item => <i key={item} className="us-cell" data-level={item} />)}<span>{t('more')}</span></span></div><div className="us-heat-months-row"><span className="us-heat-gutter" /><div className="us-heat-months" style={{ gridTemplateColumns: columns }}>{monthLabels.map((label, week) => <span key={week}>{label}</span>)}</div></div><div className="us-heat-scroll"><div className="us-heat-week"><span>{t('mon')}</span><span>{t('wed')}</span><span>{t('fri')}</span></div><div className="us-heat" style={{ gridTemplateColumns: columns }}>{days.map(day => {
-    const text = `${formatDateLabel(day.date, lang)}: ${compact(day.tokens, numberLocale)} Tokens · ${day.calls} ${t('callsSuffix')}`
-    return <span className="us-cell us-cell-tip" key={day.date} data-level={level(day.tokens)} aria-label={text} tabIndex={0} onMouseEnter={event => showTip(event.currentTarget, text)} onMouseLeave={() => setTip(null)} onFocus={event => showTip(event.currentTarget, text)} onBlur={() => setTip(null)} />
-  })}</div></div><div className="us-heat-caption">{formatDateLabel(days[0]?.date ?? '', lang)} → {formatDateLabel(days[days.length - 1]?.date ?? '', lang)} · {t('activeDays')} {snapshot.days.filter(active).length}</div></section>{tip && createPortal(<div data-usage-stats className="us-floating-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>, document.body)}</>
-}
 
 interface TrendSeries {
   id: 'total' | 'input' | 'output' | 'cache'
@@ -152,6 +114,7 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
   const { t, lang, numberLocale } = useLocale()
   const [off, setOff] = useState<Record<string, boolean>>({})
   const [hover, setHover] = useState<number | null>(null)
+  const [tipAt, setTipAt] = useState<{ x: number; y: number } | null>(null)
   const days = snapshot.days
   const W = 1000
   const H = 380
@@ -190,9 +153,12 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
   const hoverDay = hover === null ? undefined : days[hover]
   const onMove = (event: React.MouseEvent<SVGRectElement>): void => {
     const rect = event.currentTarget.getBoundingClientRect()
-    if (rect.width === 0 || days.length === 0) return
+    if (rect.width === 0 || days.length === 0 || plotW === 0 || plotH === 0) return
     const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-    setHover(Math.round(frac * (days.length - 1)))
+    const index = Math.round(frac * (days.length - 1))
+    const value = days[index]?.tokens ?? 0
+    setHover(index)
+    setTipAt({ x: rect.left + (xAt(index) - padL) / plotW * rect.width, y: rect.top + (yAt(value) - padT) / plotH * rect.height })
   }
   return <section className="us-panel us-trend">
     <div className="us-panel-head"><span className="us-panel-title">{t('dailyTrend')}</span></div>
@@ -207,17 +173,12 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
           <line className="us-trend-hover-line" x1={xAt(hover)} y1={padT} x2={xAt(hover)} y2={padT + plotH} />
           {series.map(item => off[item.id] ? null : <circle key={item.id} cx={xAt(hover)} cy={yAt(item.get(hoverDay))} r={3.4} fill={item.color} />)}
         </>}
-        <rect x={padL} y={padT} width={plotW} height={plotH} fill="transparent" onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+        <rect x={padL} y={padT} width={plotW} height={plotH} fill="transparent" onMouseMove={onMove} onMouseLeave={() => { setHover(null); setTipAt(null) }} />
       </svg>
-      {hover !== null && hoverDay !== undefined && (() => {
-        const leftPercent = Math.min(88, Math.max(12, xAt(hover!) / W * 100))
-        const pointPercent = yAt(hoverDay!.tokens) / H * 100
-        const below = pointPercent < 32
-        return <div className="us-trend-tip" style={{ left: `${leftPercent}%`, top: `${pointPercent}%`, transform: below ? 'translate(-50%, 16%)' : 'translate(-50%, -112%)' }}>
-          <b>{formatDateLabel(hoverDay!.date, lang)}</b>
-          {series.map(item => off[item.id] ? null : <div key={item.id}><span><i style={{ background: item.color }} />{item.label}</span><b>{compact(item.get(hoverDay!), numberLocale)}</b></div>)}
-        </div>
-      })()}
+      {hover !== null && hoverDay !== undefined && tipAt !== null && createPortal(<div data-usage-stats className="us-trend-tip" style={{ position: 'fixed', left: Math.min(window.innerWidth - 96, Math.max(96, tipAt.x)), top: tipAt.y, transform: tipAt.y > 180 ? 'translate(-50%, -112%)' : 'translate(-50%, 16%)' }}>
+        <b>{formatDateLabel(hoverDay.date, lang)}</b>
+        {series.map(item => off[item.id] ? null : <div key={item.id}><span><i style={{ background: item.color }} />{item.label}</span><b>{compact(item.get(hoverDay!), numberLocale)}</b></div>)}
+      </div>, document.body)}
     </div>
     <div className="us-trend-legend">{series.map(item => <button key={item.id} type="button" style={{ '--us-series': item.color } as React.CSSProperties} aria-pressed={!off[item.id]} onClick={() => setOff(current => ({ ...current, [item.id]: !current[item.id] }))}><i />{item.label}</button>)}</div>
   </section>
@@ -416,7 +377,6 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
   const [scope, setScope] = useState<TaskScope>('all')
   const [workspace, setWorkspace] = useState('')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [heatmap, setHeatmap] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback((signal: AbortSignal) => {
     setError(null)
@@ -425,13 +385,6 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
       .catch((reason: unknown) => { if ((reason as { name?: string }).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)) })
   }, [range, scope, workspace])
   useEffect(() => { const abort = new AbortController(); refresh(abort.signal); return () => { abort.abort() } }, [refresh])
-  useEffect(() => {
-    const abort = new AbortController()
-    fetchSnapshot('year', scope, workspace, abort.signal)
-      .then(setHeatmap)
-      .catch(() => { setHeatmap(null) })
-    return () => { abort.abort() }
-  }, [scope, workspace])
   useEffect(() => {
     if (hide === undefined) return
     const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') hide() }
@@ -465,7 +418,6 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
           ? <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{snapshot.allTime.mostUsedModel.model}</span>} detail={`${snapshot.allTime.mostUsedModel.percent.toFixed(1)}% · ${snapshot.allTime.mostUsedModel.provider}`} accent="#65a9ff" />
           : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} accent="#65a9ff" />}
       </div>
-      <Heatmap snapshot={heatmap ?? snapshot} />
       {range !== 'all' && <SmoothTrend snapshot={snapshot} />}
       <ModelUsage snapshot={snapshot} />
       <BucketBars models={snapshot.models} />
