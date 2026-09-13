@@ -31,6 +31,7 @@
     "cordis.patch.yml",
     "README.md",
     "docs/*.md",
+    "NOTICE",
     "LICENSE"
   ],
   "dsh": {
@@ -53,8 +54,6 @@
   },
   "scripts": {
     "build": "tsdown",
-    "prepare": "tsdown",
-    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test && npm run build",

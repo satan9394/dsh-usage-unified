@@ -1,0 +1,13 @@
+# Third-party notices
+
+`dsh-usage-unified` is a merge of two MIT-licensed DeepSeek Harness plugins and
+reuses their code and design. Both are distributed under the MIT License, which
+is compatible with the `LICENSE` in this repository.
+
+| Project | Copyright | Source | License |
+| --- | --- | --- | --- |
+| `dsh-usage-stats` | © lanlandeli | https://github.com/lanlandeli/dsh-usage-stats | MIT |
+| `@zoytown/dsh-token` | © zoytown | https://github.com/zoyluoblue/deepseek-harness-token | MIT |
+
+Their original sources are kept under `_upstream/` in the development tree for
+reference (git-ignored; not part of the published package).

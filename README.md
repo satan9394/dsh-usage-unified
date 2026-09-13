@@ -37,7 +37,7 @@ index now feeds one dashboard, so the numbers agree everywhere.
 ## Install
 
 ```powershell
-# straight from GitHub (builds `lib/` on install via the `prepare` script):
+# straight from GitHub (runtime files are committed — no install-time build):
 dsh plugin --profile web add github:satan9394/dsh-usage-unified
 
 # from an npm release, once published:
@@ -50,6 +50,10 @@ dsh plugin --profile web add E:\path\to\dsh-usage-merged
 Restart the Web profile. The dashboard appears as a **使用统计 / Usage Stats**
 item in the sidebar footer, and as a section under **Settings**. All data stays
 local; the routes answer loopback callers only.
+
+See [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) for the declared Node/DSH
+ranges and [docs/SECURITY.md](./docs/SECURITY.md) for permissions, dependencies,
+and failure bounds.
 
 ## Architecture
 
