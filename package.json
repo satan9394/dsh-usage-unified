@@ -64,7 +64,9 @@
     "report:30d": "node scripts/report.mjs --range 30d --open",
     "tokscale:export": "node scripts/tokscale-export.mjs",
     "leaderboard:setup": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-leaderboard.ps1",
-    "leaderboard:off": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/disable-leaderboard.ps1"
+    "leaderboard:off": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/disable-leaderboard.ps1",
+    "store:watch": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/store-watch.ps1",
+    "pr:watch": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/pr-watch.ps1"
   },
   "keywords": [
     "deepseek",
