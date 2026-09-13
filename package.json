@@ -1,7 +1,7 @@
 {
   "name": "dsh-usage-unified",
   "version": "0.1.1",
-  "description": "Unified DeepSeek Harness usage statistics — machine-wide token accounting across every dsh home, with trends, heatmap, per-model bucket splits, call details and CSV/JSON export.",
+  "description": "Unified DeepSeek Harness usage statistics — machine-wide token accounting across every dsh home, with trends, a custom date range, per-model bucket splits, call details and CSV/JSON export.",
   "license": "MIT",
   "author": "dsh-usage-unified contributors",
   "repository": {
@@ -30,6 +30,7 @@
     "lib/**",
     "cordis.patch.yml",
     "README.md",
+    "README.zh.md",
     "docs/*.md",
     "NOTICE",
     "LICENSE"

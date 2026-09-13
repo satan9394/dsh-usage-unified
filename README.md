@@ -1,11 +1,13 @@
 # dsh-usage-unified
 
+English | [中文](./README.zh.md)
+
 One DeepSeek Harness (`dsh`) plugin that is the **union** of two upstream plugins,
 so no feature lives in one and not the other:
 
 | Upstream | What it contributed |
 | --- | --- |
-| [`lanlandeli/dsh-usage-stats`](https://github.com/lanlandeli/dsh-usage-stats) | The rich dashboard: sidebar + full-screen overlay, per-day token trend, activity heatmap, model donut, token-composition card, per-call detail table with filters and pagination, CSV/JSON export, workspace/task-scope filters, zh/en i18n, theme-adaptive styling. |
+| [`lanlandeli/dsh-usage-stats`](https://github.com/lanlandeli/dsh-usage-stats) | The rich dashboard: sidebar + full-screen overlay, per-day token trend, model donut, token-composition card, per-call detail table with filters and pagination, CSV/JSON export, workspace/task-scope filters, zh/en i18n, theme-adaptive styling. |
 | [`zoyluoblue/deepseek-harness-token`](https://github.com/zoyluoblue/deepseek-harness-token) | The machine-wide core: discovery of **every** dsh home (`~/.dsh`, `~/.dsh_desktop/<version>`, `$DSH_HOME`), raw session-log reading (zstd container frames), the pure resumable fold, an incremental durable index, all-time / 7d / 30d ranges, current + longest streaks, peak hour, per-model disjoint-bucket split, coverage disclosure, and a Settings section. |
 
 The two were **merged at the data layer**, not bolted together: one machine-wide
@@ -20,12 +22,13 @@ index now feeds one dashboard, so the numbers agree everywhere.
 | Sidebar entry + full-screen overlay | ✓ | ✗ | ✓ |
 | Settings → Usage section | ✗ | ✓ | ✓ |
 | Token totals incl. cache reads | ✓ | ✓ | ✓ |
-| 7d / 30d trend | ✓ | ✓ | ✓ |
-| All-time range | partial (cards) | ✓ | ✓ |
-| Year heatmap | ✓ | ✓ | ✓ |
+| 7d / 30d / all-time trend | ✓ | ✓ | ✓ |
+| Custom date range | ✗ | ✗ | ✓ |
+| Smooth multi-series trend (total / input / output / cache read) | ✗ | ✗ | ✓ |
 | Current streak | ✓ | ✓ | ✓ |
 | Longest streak | ✗ | ✓ | ✓ |
 | Peak hour | ✗ | ✓ | ✓ |
+| Cache-hit-rate + model-call cards | ✗ | ✗ | ✓ |
 | Per-model donut + share | ✓ | ✗ | ✓ |
 | Per-model input/cacheRead/cacheWrite/output split | ✗ | ✓ | ✓ |
 | Per-call detail table (time, duration, tokens, cache %, model, effort) | ✓ | ✗ | ✓ |
@@ -33,6 +36,9 @@ index now feeds one dashboard, so the numbers agree everywhere.
 | CSV / JSON export | ✓ | ✗ | ✓ |
 | Coverage + homes + skipped-log disclosure | ✗ | ✓ | ✓ |
 | zh/en, light/dark | ✓ | ✓ | ✓ |
+
+> The activity heatmap both upstreams shipped was **dropped** here as redundant
+> with the trend chart.
 
 ## Install
 
