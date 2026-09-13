@@ -66,8 +66,8 @@ function compact(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, { notation: value >= 10_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value)
 }
 
-function Card({ icon, label, value, detail }: { icon: IconName; label: string; value: ReactNode; detail?: string | undefined }): ReactNode {
-  return <article className="us-card"><div className="us-card-label"><Icon name={icon} size={16} />{label}</div><div className="us-card-value">{value}</div>{detail && <div className="us-card-detail" title={detail}>{detail}</div>}</article>
+function Card({ icon, label, value, detail, accent, hero, spark }: { icon: IconName; label: string; value: ReactNode; detail?: string | undefined; accent?: string; hero?: boolean; spark?: ReactNode }): ReactNode {
+  return <article className="us-card" data-hero={hero ? 'true' : undefined} style={accent === undefined ? undefined : ({ '--us-accent-card': accent } as React.CSSProperties)}><div className="us-card-label"><Icon name={icon} size={16} />{label}</div><div className="us-card-value">{value}</div>{detail && <div className="us-card-detail" title={detail}>{detail}</div>}{spark}</article>
 }
 
 interface SelectOption {
@@ -359,20 +359,28 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
   }, [hide])
   const workspaceOptions = useMemo<SelectOption[]>(() => [{ value: '', label: t('allWorkspaces') }, ...(snapshot?.workspaces.map(item => ({ value: item.path, label: `${item.path} (${item.sessions})` })) ?? [])], [snapshot?.workspaces, t])
   const scopeOptions: readonly SelectOption[] = [{ value: 'all', label: t('allTasks') }, { value: 'main', label: t('mainOnly') }, { value: 'subtasks', label: t('subtasksOnly') }]
+  const sparkline = useMemo(() => {
+    const days = snapshot?.days ?? []
+    if (days.length < 2) return undefined
+    const slice = days.slice(-60)
+    const max = Math.max(1, ...slice.map(day => day.tokens))
+    const points = slice.map((day, index) => `${(index / (slice.length - 1) * 260).toFixed(1)},${(50 - day.tokens / max * 44 - 3).toFixed(1)}`).join(' ')
+    return <svg className="us-spark" viewBox="0 0 260 52" preserveAspectRatio="none" aria-hidden="true"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  }, [snapshot])
   const body: ReactNode = error ? <div className="us-state"><div><p>{t('loadError')}</p><small>{error}</small></div></div>
     : snapshot === null ? <div className="us-state"><div><div className="us-spinner" />{t('loading')}</div></div>
     : <>
       <div className="us-cards">
-        <Card icon="tokens" label={t('tokensUsage')} value={compact(snapshot.allTime.totals.tokens, numberLocale)} detail={t('inputOutputDetail', { input: compact(snapshot.allTime.totals.input, numberLocale), output: compact(snapshot.allTime.totals.output, numberLocale) })} />
-        <Card icon="chat" label={t('sessions')} value={snapshot.allTime.totals.sessions} detail={snapshot.allTime.totals.subagentSessions > 0 ? t('subagentNote', { n: snapshot.allTime.totals.subagentSessions }) : undefined} />
-        <Card icon="message" label={t('messages')} value={snapshot.allTime.totals.messages} />
-        <Card icon="calendar" label={t('activeDays')} value={snapshot.allTime.totals.activeDays} />
-        <Card icon="streak" label={t('streak')} value={snapshot.allTime.totals.currentStreak} />
-        <Card icon="streak" label={t('longestStreak')} value={snapshot.allTime.totals.longestStreak} />
-        <Card icon="clock" label={t('peakHour')} value={formatHour(snapshot.allTime.totals.peakHour, t)} />
+        <Card icon="tokens" label={t('tokensUsage')} value={compact(snapshot.allTime.totals.tokens, numberLocale)} detail={t('inputOutputDetail', { input: compact(snapshot.allTime.totals.input, numberLocale), output: compact(snapshot.allTime.totals.output, numberLocale) })} accent="#1684ff" hero spark={sparkline} />
+        <Card icon="chat" label={t('sessions')} value={snapshot.allTime.totals.sessions} detail={snapshot.allTime.totals.subagentSessions > 0 ? t('subagentNote', { n: snapshot.allTime.totals.subagentSessions }) : undefined} accent="#9368ef" />
+        <Card icon="message" label={t('messages')} value={snapshot.allTime.totals.messages} accent="#219653" />
+        <Card icon="calendar" label={t('activeDays')} value={snapshot.allTime.totals.activeDays} accent="#f59e0b" />
+        <Card icon="streak" label={t('streak')} value={snapshot.allTime.totals.currentStreak} accent="#ef5da8" />
+        <Card icon="streak" label={t('longestStreak')} value={snapshot.allTime.totals.longestStreak} accent="#a479e2" />
+        <Card icon="clock" label={t('peakHour')} value={formatHour(snapshot.allTime.totals.peakHour, t)} accent="#2da2bb" />
         {snapshot.allTime.mostUsedModel
-          ? <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{snapshot.allTime.mostUsedModel.model}</span>} detail={`${snapshot.allTime.mostUsedModel.percent.toFixed(1)}% · ${snapshot.allTime.mostUsedModel.provider}`} />
-          : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} />}
+          ? <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{snapshot.allTime.mostUsedModel.model}</span>} detail={`${snapshot.allTime.mostUsedModel.percent.toFixed(1)}% · ${snapshot.allTime.mostUsedModel.provider}`} accent="#65a9ff" />
+          : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} accent="#65a9ff" />}
       </div>
       <Heatmap snapshot={heatmap ?? snapshot} />
       {range !== 'all' && <DailyChart snapshot={snapshot} />}
