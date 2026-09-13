@@ -67,7 +67,7 @@ function compact(value: number, locale: string): string {
 }
 
 function Card({ icon, label, value, detail, accent, hero, spark }: { icon: IconName; label: string; value: ReactNode; detail?: string | undefined; accent?: string; hero?: boolean; spark?: ReactNode }): ReactNode {
-  return <article className="us-card" data-hero={hero ? 'true' : undefined} style={accent === undefined ? undefined : ({ '--us-accent-card': accent } as React.CSSProperties)}><div className="us-card-label"><Icon name={icon} size={16} />{label}</div><div className="us-card-value">{value}</div>{detail && <div className="us-card-detail" title={detail}>{detail}</div>}{spark}</article>
+  return <article className="us-card" data-hero={hero ? 'true' : undefined} style={accent === undefined ? undefined : ({ '--us-accent-card': accent } as React.CSSProperties)}>{hero && <span className="us-sheen" aria-hidden="true" />}<div className="us-card-label"><Icon name={icon} size={16} />{label}</div><div className="us-card-value">{value}</div>{detail && <div className="us-card-detail" title={detail}>{detail}</div>}{spark}</article>
 }
 
 interface SelectOption {
@@ -116,32 +116,84 @@ function Heatmap({ snapshot }: { snapshot: Snapshot }): ReactNode {
   })}</div></div></section>{tip && createPortal(<div data-usage-stats className="us-floating-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>, document.body)}</>
 }
 
-function DailyChart({ snapshot }: { snapshot: Snapshot }): ReactNode {
-  const { t, lang, numberLocale } = useLocale()
-  const [tip, setTip] = useState<{ x: number; y: number; date: string; total: number; rows: { key: string; name: string; value: number; color: string }[] } | null>(null)
-  const max = Math.max(1, ...snapshot.days.map(day => day.tokens))
-  const visibleModels = snapshot.models.slice(0, 6)
-  const colors = ['#1684ff', '#219653', '#9368ef', '#f59e0b', '#ef5da8', '#22b8b5']
-  const tickEvery = snapshot.days.length <= 8 ? 1 : Math.max(1, Math.ceil(snapshot.days.length / 7))
-  const showTip = (target: HTMLElement, day: Snapshot['days'][number]): void => {
-    const rect = target.getBoundingClientRect()
-    const rows = visibleModels.flatMap((model, index) => {
-      const value = day.models[model.key] ?? 0
-      return value === 0 ? [] : [{ key: model.key, name: model.model, value, color: colors[index] ?? colors[0]! }]
-    })
-    const halfWidth = Math.min(195, Math.max(130, window.innerWidth / 2 - 12))
-    const halfHeight = (52 + rows.length * 25) / 2
-    const x = Math.min(window.innerWidth - halfWidth - 12, Math.max(halfWidth + 12, rect.left + rect.width / 2))
-    const preferredY = rect.top > halfHeight + 24 ? rect.top - halfHeight - 12 : rect.bottom + halfHeight + 12
-    const y = Math.min(window.innerHeight - halfHeight - 12, Math.max(halfHeight + 12, preferredY))
-    setTip({ x, y, date: formatDateLabel(day.date, lang), total: day.tokens, rows })
-  }
-  return <><section className="us-panel us-trend"><div className="us-panel-head"><span className="us-panel-title">{t('dailyTrend')}</span></div><div className="us-chart-frame"><div className="us-grid-lines"><i /><i /><i /><i /></div><div className="us-chart-scroll"><div className="us-chart" data-dense={snapshot.days.length > 14}>{snapshot.days.map((day, dayIndex) => <div className="us-bar-column" key={day.date}><div className="us-bar-wrap">{day.tokens > 0 && <div className="us-bar-hit" style={{ height: `${day.tokens / max * 100}%` }} tabIndex={0} aria-label={`${formatDateLabel(day.date, lang)}, ${compact(day.tokens, numberLocale)} tokens`} onMouseEnter={event => showTip(event.currentTarget, day)} onMouseLeave={() => setTip(null)} onFocus={event => showTip(event.currentTarget, day)} onBlur={() => setTip(null)}>{visibleModels.map((model, modelIndex) => {
-    const value = day.models[model.key] ?? 0
-    if (value === 0) return null
-    return <i className="us-bar-segment" key={model.key} style={{ height: `${value / day.tokens * 100}%`, background: colors[modelIndex] }} />
-  })}</div>}</div><span className="us-date-label">{dayIndex % tickEvery === 0 || dayIndex === snapshot.days.length - 1 ? formatDateLabel(day.date, lang) : ''}</span></div>)}</div></div></div><div className="us-legend">{visibleModels.map((model, index) => <span key={model.key}><i className="us-dot" style={{ background: colors[index] }} />{model.model}</span>)}</div></section>{tip && createPortal(<div data-usage-stats className="us-chart-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}><div className="us-chart-tip-head"><strong>{tip.date}</strong><span>{compact(tip.total, numberLocale)} tokens</span></div>{tip.rows.map(row => <div className="us-chart-tip-row" key={row.key}><i style={{ background: row.color }} /><span>{row.name}</span><b>{new Intl.NumberFormat(numberLocale).format(row.value)}</b></div>)}</div>, document.body)}</>
+interface TrendSeries {
+  id: 'total' | 'input' | 'output' | 'cache'
+  label: string
+  color: string
+  get: (day: Snapshot['days'][number]) => number
 }
+
+/** Smooth multi-series area/line trend — the multi-line treatment the bar chart lacked. */
+function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
+  const { t, lang, numberLocale } = useLocale()
+  const [off, setOff] = useState<Record<string, boolean>>({})
+  const [hover, setHover] = useState<number | null>(null)
+  const days = snapshot.days
+  const W = 1000
+  const H = 300
+  const padL = 56
+  const padR = 16
+  const padT = 16
+  const padB = 30
+  const plotW = W - padL - padR
+  const plotH = H - padT - padB
+  const series: TrendSeries[] = [
+    { id: 'total', label: t('trendTotal'), color: '#922bff', get: day => day.tokens },
+    { id: 'input', label: t('input'), color: '#1684ff', get: day => day.input },
+    { id: 'output', label: t('output'), color: '#219653', get: day => day.output },
+    { id: 'cache', label: t('cacheRead'), color: '#f59e0b', get: day => day.cacheRead },
+  ]
+  const max = Math.max(1, ...days.map(day => day.tokens))
+  const xAt = (index: number): number => padL + (days.length <= 1 ? plotW / 2 : index / (days.length - 1) * plotW)
+  const yAt = (value: number): number => padT + plotH - value / max * plotH
+  const smooth = (get: (day: Snapshot['days'][number]) => number): string => {
+    if (days.length === 0) return ''
+    const pts = days.map((day, index) => [xAt(index), yAt(get(day))] as const)
+    let d = `M ${pts[0]![0].toFixed(1)} ${pts[0]![1].toFixed(1)}`
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] ?? pts[i]!
+      const p1 = pts[i]!
+      const p2 = pts[i + 1]!
+      const p3 = pts[i + 2] ?? p2
+      d += ` C ${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`
+    }
+    return d
+  }
+  const totalPath = smooth(item => item.tokens)
+  const areaPath = totalPath === '' ? '' : `${totalPath} L ${xAt(days.length - 1).toFixed(1)} ${(padT + plotH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + plotH).toFixed(1)} Z`
+  const tickCount = Math.min(days.length, days.length <= 8 ? days.length : 7)
+  const ticks = Array.from({ length: tickCount }, (_, i) => days.length <= 1 ? 0 : Math.round(i / (tickCount - 1) * (days.length - 1)))
+  const hoverDay = hover === null ? undefined : days[hover]
+  const onMove = (event: React.MouseEvent<SVGRectElement>): void => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (rect.width === 0 || days.length === 0) return
+    const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+    setHover(Math.round(frac * (days.length - 1)))
+  }
+  return <section className="us-panel us-trend">
+    <div className="us-panel-head"><span className="us-panel-title">{t('dailyTrend')}</span></div>
+    <div className="us-trend-chart">
+      <svg className="us-trend-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('dailyTrend')}>
+        <defs><linearGradient id="us-total-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#922bff" stopOpacity="0.3" /><stop offset="100%" stopColor="#922bff" stopOpacity="0.02" /></linearGradient></defs>
+        {[0, 1, 2, 3, 4].map(i => { const y = padT + plotH * i / 4; return <g key={i}><line className="us-grid" x1={padL} y1={y} x2={W - padR} y2={y} /><text x={padL - 10} y={y + 4} textAnchor="end">{compact(max * (4 - i) / 4, numberLocale)}</text></g> })}
+        {ticks.map(index => { const day = days[index]; if (day === undefined) return null; return <text key={index} x={xAt(index)} y={H - 10} textAnchor={index === 0 ? 'start' : index === days.length - 1 ? 'end' : 'middle'}>{formatDateLabel(day.date, lang)}</text> })}
+        {areaPath !== '' && !off.total && <path d={areaPath} fill="url(#us-total-fill)" />}
+        {series.map(item => off[item.id] ? null : <path key={item.id} d={smooth(item.get)} fill="none" stroke={item.color} strokeWidth={item.id === 'total' ? 2.4 : 1.7} strokeLinecap="round" strokeLinejoin="round" />)}
+        {hover !== null && hoverDay !== undefined && <>
+          <line className="us-trend-hover-line" x1={xAt(hover)} y1={padT} x2={xAt(hover)} y2={padT + plotH} />
+          {series.map(item => off[item.id] ? null : <circle key={item.id} cx={xAt(hover)} cy={yAt(item.get(hoverDay))} r={3.4} fill={item.color} />)}
+        </>}
+        <rect x={padL} y={padT} width={plotW} height={plotH} fill="transparent" onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+      </svg>
+      {hover !== null && hoverDay !== undefined && <div className="us-trend-tip" style={{ left: `${xAt(hover) / W * 100}%`, top: `${yAt(hoverDay.tokens) / H * 100}%` }}>
+        <b>{formatDateLabel(hoverDay.date, lang)}</b>
+        {series.map(item => off[item.id] ? null : <div key={item.id}><span><i style={{ background: item.color }} />{item.label}</span><b>{compact(item.get(hoverDay), numberLocale)}</b></div>)}
+      </div>}
+    </div>
+    <div className="us-trend-legend">{series.map(item => <button key={item.id} type="button" style={{ '--us-series': item.color } as React.CSSProperties} aria-pressed={!off[item.id]} onClick={() => setOff(current => ({ ...current, [item.id]: !current[item.id] }))}><i />{item.label}</button>)}</div>
+  </section>
+}
+
 
 function ModelUsage({ snapshot }: { snapshot: Snapshot }): ReactNode {
   const { t, numberLocale } = useLocale()
@@ -374,6 +426,8 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
         <Card icon="tokens" label={t('tokensUsage')} value={compact(snapshot.allTime.totals.tokens, numberLocale)} detail={t('inputOutputDetail', { input: compact(snapshot.allTime.totals.input, numberLocale), output: compact(snapshot.allTime.totals.output, numberLocale) })} accent="#1684ff" hero spark={sparkline} />
         <Card icon="chat" label={t('sessions')} value={snapshot.allTime.totals.sessions} detail={snapshot.allTime.totals.subagentSessions > 0 ? t('subagentNote', { n: snapshot.allTime.totals.subagentSessions }) : undefined} accent="#9368ef" />
         <Card icon="message" label={t('messages')} value={snapshot.allTime.totals.messages} accent="#219653" />
+        <Card icon="chart" label={t('calls')} value={compact(snapshot.models.reduce((sum, model) => sum + model.calls, 0), numberLocale)} accent="#22b8b5" />
+        <Card icon="tokens" label={t('cacheHitRate')} value={(() => { const denom = snapshot.allTime.totals.input + snapshot.allTime.totals.cacheRead + snapshot.allTime.totals.cacheWrite; return denom > 0 ? `${(snapshot.allTime.totals.cacheRead / denom * 100).toFixed(1)}%` : '—' })()} accent="#2da2bb" />
         <Card icon="calendar" label={t('activeDays')} value={snapshot.allTime.totals.activeDays} accent="#f59e0b" />
         <Card icon="streak" label={t('streak')} value={snapshot.allTime.totals.currentStreak} accent="#ef5da8" />
         <Card icon="streak" label={t('longestStreak')} value={snapshot.allTime.totals.longestStreak} accent="#a479e2" />
@@ -383,7 +437,7 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
           : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} accent="#65a9ff" />}
       </div>
       <Heatmap snapshot={heatmap ?? snapshot} />
-      {range !== 'all' && <DailyChart snapshot={snapshot} />}
+      {range !== 'all' && <SmoothTrend snapshot={snapshot} />}
       <ModelUsage snapshot={snapshot} />
       <BucketBars models={snapshot.models} />
       <Breakdown snapshot={snapshot} />

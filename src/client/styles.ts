@@ -82,6 +82,23 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-card[data-hero] { grid-column: span 2; background: radial-gradient(130% 150% at 0% 0%, color-mix(in srgb, var(--us-accent-card, var(--us-accent)) 18%, transparent) 0%, transparent 58%), var(--us-surface); }
 .us-card[data-hero] .us-card-value { font-size: clamp(38px, 4.4vw, 50px); }
 .us-spark { display: block; width: 100%; height: 52px; margin-top: 12px; color: var(--us-accent-card, var(--us-accent)); opacity: .85; }
+.us-sheen { position: absolute; top: 0; bottom: 0; left: 0; width: 42%; transform: translateX(-130%); background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--us-accent-card, var(--us-accent)) 26%, transparent), transparent); animation: us-sheen 6s ease-in-out infinite; pointer-events: none; }
+.us-card[data-hero]::after { animation: us-glow 4.6s ease-in-out infinite; }
+@keyframes us-sheen { 0% { transform: translateX(-130%); } 55%, 100% { transform: translateX(260%); } }
+@keyframes us-glow { 0%, 100% { opacity: .55; } 50% { opacity: .95; } }
+.us-trend-chart { position: relative; }
+.us-trend-svg { display: block; width: 100%; height: auto; }
+.us-trend-svg .us-grid { stroke: color-mix(in srgb, var(--us-border) 80%, transparent); stroke-dasharray: 4 5; }
+.us-trend-svg text { fill: var(--us-muted); font-size: 11px; font-family: inherit; }
+.us-trend-hover-line { stroke: color-mix(in srgb, var(--us-text) 42%, transparent); stroke-dasharray: 3 4; }
+.us-trend-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.us-trend-legend button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border: 1px solid var(--us-border); border-radius: 999px; background: var(--us-raised); color: var(--us-text); font: inherit; font-size: 12px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, opacity 140ms ease; }
+.us-trend-legend button[aria-pressed="false"] { opacity: .5; }
+.us-trend-legend i { width: 9px; height: 9px; border-radius: 3px; background: var(--us-series); flex: none; }
+.us-trend-tip { position: absolute; z-index: 8; min-width: 172px; padding: 9px 11px; border: 1px solid var(--us-border); border-radius: 10px; background: color-mix(in srgb, var(--us-raised) 96%, transparent); box-shadow: 0 14px 38px rgba(0,0,0,.16); color: var(--us-text); font-size: 12px; backdrop-filter: blur(12px); pointer-events: none; transform: translate(-50%, -108%); }
+.us-trend-tip b { display: block; margin-bottom: 5px; }
+.us-trend-tip div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
+.us-trend-tip i { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .us-panel { margin-top: 14px; padding: 18px 20px; overflow: hidden; animation: us-panel-in 380ms 90ms both; }
 .us-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .us-panel-title { font-size: 16px; font-weight: 620; }
@@ -161,7 +178,7 @@ body[data-ds-dark-theme] .us-cell[data-level="5"] { background: #67b7ff; }
 @keyframes us-chart-tip-in { from { opacity: 0; transform: translate(-50%, calc(-50% + 4px)) scale(.985); } }
 @media (max-width: 760px) { .us-top { min-height: 88px; } .us-heading { gap: 12px; } .us-tab { display: none; } .us-cards { grid-template-columns: repeat(2,minmax(0,1fr)); } .us-model-layout { grid-template-columns: 1fr; } .us-breakdown { grid-template-columns: repeat(2,1fr); } .us-chart-frame { height: 280px; } .us-legend { justify-content: flex-start; } }
 @media (max-width: 480px) { .us-cards { grid-template-columns: 1fr; } .us-card[data-hero] { grid-column: auto; } .us-toolbar { align-items: stretch; } .us-field, .us-select { max-width:none; flex:1; } }
-@media (prefers-reduced-motion: reduce) { .us-shell, .us-spinner, .us-bar-segment, .us-card, .us-panel, .us-floating-tip, .us-chart-tip { animation: none; transition: none; } }
+@media (prefers-reduced-motion: reduce) { .us-shell, .us-spinner, .us-bar-segment, .us-card, .us-panel, .us-floating-tip, .us-chart-tip, .us-sheen, .us-card[data-hero]::after { animation: none; transition: none; } }
 .us-calls-wrap { overflow: visible; }
 .us-calls-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
 .us-calls-select { min-width: 180px; max-width: 240px; }
