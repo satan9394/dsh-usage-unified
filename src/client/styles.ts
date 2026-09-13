@@ -86,8 +86,8 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-card[data-hero]::after { animation: us-glow 4.6s ease-in-out infinite; }
 @keyframes us-sheen { 0% { transform: translateX(-130%); } 55%, 100% { transform: translateX(260%); } }
 @keyframes us-glow { 0%, 100% { opacity: .55; } 50% { opacity: .95; } }
-.us-trend-chart { position: relative; }
-.us-trend-svg { display: block; width: 100%; height: auto; }
+.us-trend-chart { position: relative; z-index: 1; }
+.us-trend-svg { display: block; width: 100%; height: auto; min-height: 300px; }
 .us-trend-svg .us-grid { stroke: color-mix(in srgb, var(--us-border) 80%, transparent); stroke-dasharray: 4 5; }
 .us-trend-svg text { fill: var(--us-muted); font-size: 11px; font-family: inherit; }
 .us-trend-hover-line { stroke: color-mix(in srgb, var(--us-text) 42%, transparent); stroke-dasharray: 3 4; }
@@ -95,7 +95,7 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-trend-legend button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border: 1px solid var(--us-border); border-radius: 999px; background: var(--us-raised); color: var(--us-text); font: inherit; font-size: 12px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, opacity 140ms ease; }
 .us-trend-legend button[aria-pressed="false"] { opacity: .5; }
 .us-trend-legend i { width: 9px; height: 9px; border-radius: 3px; background: var(--us-series); flex: none; }
-.us-trend-tip { position: absolute; z-index: 8; min-width: 172px; padding: 9px 11px; border: 1px solid var(--us-border); border-radius: 10px; background: color-mix(in srgb, var(--us-raised) 96%, transparent); box-shadow: 0 14px 38px rgba(0,0,0,.16); color: var(--us-text); font-size: 12px; backdrop-filter: blur(12px); pointer-events: none; transform: translate(-50%, -108%); }
+.us-trend-tip { position: absolute; z-index: 30; min-width: 172px; padding: 9px 11px; border: 1px solid var(--us-border); border-radius: 10px; background: color-mix(in srgb, var(--us-raised) 96%, transparent); box-shadow: 0 14px 38px rgba(0,0,0,.16); color: var(--us-text); font-size: 12px; backdrop-filter: blur(12px); pointer-events: none; transform: translate(-50%, -108%); }
 .us-trend-tip b { display: block; margin-bottom: 5px; }
 .us-trend-tip div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
 .us-trend-tip i { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -105,6 +105,11 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-panel-note { color: var(--us-muted); font-size: 12px; }
 .us-heat-panel { overflow: visible; }
 .us-heat-scroll { display: flex; align-items: flex-start; gap: 8px; width: 100%; overflow: visible; padding: 8px 4px 18px; }
+.us-heat-months-row { display: flex; align-items: flex-end; gap: 8px; padding: 2px 4px 0; color: var(--us-muted); font-size: 10px; }
+.us-heat-gutter { flex: none; width: 14px; }
+.us-heat-months { flex: 1; min-width: 0; display: grid; gap: clamp(2px, .28vw, 4px); }
+.us-heat-months span { white-space: nowrap; }
+.us-heat-caption { margin-top: 4px; color: var(--us-muted); font-size: 12px; }
 .us-heat-week { flex: none; display: grid; grid-template-rows: repeat(7, 15px); gap: 4px; width: 14px; color: var(--us-muted); font-size: 10px; line-height: 15px; }
 .us-heat-week span:nth-child(2) { grid-row: 3; }
 .us-heat-week span:nth-child(3) { grid-row: 5; }
