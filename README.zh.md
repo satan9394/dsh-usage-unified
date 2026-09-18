@@ -144,9 +144,9 @@ npm run leaderboard:setup     # 引导：安装/登录 tokscale、导出、首�
 npm run leaderboard:off       # 撤销：删除每日任务、停止提交
 ```
 
-`leaderboard:setup` 遵循 [docs/LEADERBOARD.md](./docs/LEADERBOARD.md)，其中逐条说明**离开本机的数据**，并在上传前征求确认。该文档也覆盖导出器（`scripts/ccswitch-export.mjs` 处理 CC Switch 代理侧的 Claude 用量）、定价表（`scripts/custom-pricing.mjs`）与每日刷新任务。
+`leaderboard:setup` 遵循 [docs/LEADERBOARD.md](./docs/LEADERBOARD.md)，其中逐条说明**离开本机的数据**，并在上传前征求确认。该文档也覆盖仅剩的一个补充导出器（`scripts/ccswitch-export.mjs`，处理 CC Switch 代理侧的 Claude 用量）、定价表（`scripts/custom-pricing.mjs`）与每日刷新任务。
 
-> `scripts/tokscale-export.mjs` **已废弃**：它绕开的那个上游缺陷已由 [junhoyeo/tokscale#1328](https://github.com/junhoyeo/tokscale/pull/1328) 修复，并随 tokscale **v4.17.0**（2026-09-15）发布。tokscale ≥ 4.17.0 会原生读取版本化日志，继续保留该导出器与其 `extraScanPaths` 条目会**重复计数**；升级后应按脚本头部的迁移步骤一并退休。
+> **DSH 已经不需要补充导出器。** 本仓库原来那个 `scripts/tokscale-export.mjs` 是因为 tokscale 不认版本化日志 `session.v<N>.jsonl.zstd` 才存在的；该缺陷已由 [junhoyeo/tokscale#1328](https://github.com/junhoyeo/tokscale/pull/1328) 修复，并随 tokscale **v4.17.0**（2026-09-15）发布。本机实测：在 4.17.0 上继续保留导出器与其 `extraScanPaths.dsh` 条目，DSH 会被读成 **24.80B**（原生只读是 15.38B），所以两者已一并**退休**。排行榜流程现在要求 tokscale ≥ 4.17.0，低于此版本 `leaderboard:setup` 会告警。
 
 ### 隐私速览
 

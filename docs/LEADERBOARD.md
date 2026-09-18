@@ -74,20 +74,27 @@ Skip this and nothing is ever uploaded.
 
 tokscale reads most agents (Claude Code, Codex, OpenCode) directly, but not:
 
-- DSH's **versioned** `session.v<N>.jsonl.zstd` logs, and
 - CC Switch's proxy-side Claude usage (tokscale reads the agent's local
   transcripts, which can be nearly empty).
 
-Two exporters fill the gap, and their output is registered in
-`%APPDATA%\tokscale\settings.json` under `scanner.extraScanPaths`:
+DSH needs no help any more. tokscale **>= 4.17.0** reads its versioned
+`session.v<N>.jsonl.zstd` logs itself ([#1328](https://github.com/junhoyeo/tokscale/pull/1328));
+before that it only saw the legacy `session.jsonl.zstd`, which is why this repo
+used to ship a `tokscale-export.mjs` that rewrote them into the legacy name. That
+exporter is **retired** — with 4.17.0 it would count the same sessions twice
+(measured: 24.80B vs 15.38B for DSH on this machine), so the script, its
+`.tokscale-home/` output and the `scanner.extraScanPaths.dsh` entry are all gone.
+If `tokscale --version` is below 4.17.0, upgrade it; `leaderboard:setup` warns.
+
+One exporter remains, registered in `%APPDATA%\tokscale\settings.json` under
+`scanner.extraScanPaths`:
 
 ```powershell
-npm run tokscale:export          # .tokscale-home/  (versioned DSH logs only)
 node scripts/ccswitch-export.mjs # .ccswitch-home/ (CC Switch claude only)
 node scripts/custom-pricing.mjs  # price custom providers (optional, cost only)
 ```
 
-`leaderboard:setup` runs all three for you.
+`leaderboard:setup` runs both for you.
 
 ### 4. First submit
 

@@ -1,11 +1,14 @@
-# Refresh the two local supplements tokscale cannot read by itself, then submit.
+# Refresh the local supplements tokscale cannot read by itself, then submit.
 #
-#  - tokscale-export.mjs : DSH's versioned `session.v<N>.jsonl.zstd` (tokscale
-#                          only reads the legacy `session.jsonl.zstd`).
 #  - ccswitch-export.mjs : CC Switch's proxy-side Claude Code usage (tokscale
 #                          only reads the agent's local transcripts, which are
 #                          nearly empty here).
 #  - custom-pricing.mjs  : CC Switch model prices -> tokscale custom-pricing.
+#
+# DSH needs no supplement any more: tokscale >= 4.17.0 reads the versioned
+# `session.v<N>.jsonl.zstd` logs itself (junhoyeo/tokscale#1328), so the old
+# `tokscale-export.mjs` step and its `extraScanPaths.dsh` entry are gone —
+# keeping them would count those sessions twice.
 #
 # Scheduled daily by `ai.tokscale.refresh`. The submit summary is appended to
 # logs\refresh.log.
@@ -17,9 +20,6 @@ $logDir = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir 'refresh.log'
 $stamp = Get-Date -Format s
-
-Write-Host "[refresh] exporting DSH sessions..."
-node (Join-Path $PSScriptRoot 'tokscale-export.mjs')
 
 Write-Host "[refresh] exporting CC Switch claude usage..."
 node (Join-Path $PSScriptRoot 'ccswitch-export.mjs')
