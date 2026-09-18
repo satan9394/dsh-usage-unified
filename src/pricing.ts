@@ -51,20 +51,8 @@ export function normalizeModelId(id: string): string {
   return id.trim().toLowerCase().replace(/@[^@]*$/, '')
 }
 
-/** The model half of a `provider/model` attribution key. */
-export function modelNameOf(key: string): string {
-  const slash = key.indexOf('/')
-  return slash < 0 ? key : key.slice(slash + 1)
-}
-
-/**
- * Look a model up, trying the exact id first and then progressively shorter
- * dash-separated prefixes. Cheap, deterministic, and good enough for the id
- * shapes providers actually publish.
- */
-export function lookupPrice(table: PricingTable | null, model: string): ModelPrice | null {
-  if (table === null) return null
-  const normalized = normalizeModelId(model)
+/** Exact id first, then progressively shorter dash-separated prefixes. */
+function lookupCandidates(table: PricingTable, normalized: string): ModelPrice | null {
   const exact = table.models.get(normalized)
   if (exact !== undefined) return usablePrice(exact) ? exact : null
   const segments = normalized.split('-')
@@ -73,6 +61,24 @@ export function lookupPrice(table: PricingTable | null, model: string): ModelPri
     if (candidate !== undefined) return usablePrice(candidate) ? candidate : null
   }
   return null
+}
+
+/**
+ * Look a model up, trying the exact id first and then progressively shorter
+ * dash-separated prefixes. Cheap, deterministic, and good enough for the id
+ * shapes providers actually publish.
+ *
+ * A `provider/model` attribution key is accepted directly: this machine routes
+ * models whose own name contains a slash (`command/deepseek/deepseek-v4.1-flash`),
+ * so the segment after the last slash is tried as well.
+ */
+export function lookupPrice(table: PricingTable | null, model: string): ModelPrice | null {
+  if (table === null) return null
+  const normalized = normalizeModelId(model)
+  const direct = lookupCandidates(table, normalized)
+  if (direct !== null) return direct
+  const slash = normalized.lastIndexOf('/')
+  return slash < 0 ? null : lookupCandidates(table, normalized.slice(slash + 1))
 }
 
 /** USD cost of one token report, or null when the model has no price. */
@@ -164,6 +170,18 @@ export interface PriceTarget {
 }
 
 /**
+ * Which rows a price pass should decorate, and which of them the summary sums.
+ *
+ * `basis` must partition the window's tokens exactly once — the per-model rows
+ * are the only set that does. Session rows are useful as a per-row number but
+ * describe the same tokens, so folding them into the total would double it.
+ */
+export interface PricingInput {
+  basis: readonly PriceTarget[]
+  extra?: readonly PriceTarget[]
+}
+
+/**
  * Decorate rows with costs and summarize coverage.
  *
  * Rows are mutated in place — they are freshly built per snapshot, never
@@ -171,15 +189,15 @@ export interface PriceTarget {
  * `priced: false` and its tokens counted as unpriced; the estimate therefore
  * never silently reads as "free".
  */
-export function applyPricing(targets: readonly PriceTarget[], table: PricingTable | null): CostSummary | null {
+export function applyPricing(input: PricingInput, table: PricingTable | null): CostSummary | null {
   if (table === null) return null
   let total = 0
   let pricedTokens = 0
   let unpricedTokens = 0
 
   const seen = new Set<Costable>()
-  for (const { row, modelId } of targets) {
-    if (seen.has(row)) continue
+  const price = ({ row, modelId }: PriceTarget): number | null => {
+    if (seen.has(row)) return null
     seen.add(row)
     const cost = costOf(table, modelId, {
       input: row.input,
@@ -189,14 +207,24 @@ export function applyPricing(targets: readonly PriceTarget[], table: PricingTabl
     })
     if (cost === null) {
       row.priced = false
-      unpricedTokens += row.tokens
-      continue
+      return null
     }
     row.costUsd = cost
     row.priced = true
-    total += cost
-    pricedTokens += row.tokens
+    return cost
   }
+
+  for (const target of input.basis) {
+    if (seen.has(target.row)) continue
+    const cost = price(target)
+    if (cost === null) unpricedTokens += target.row.tokens
+    else {
+      total += cost
+      pricedTokens += target.row.tokens
+    }
+  }
+  // Per-row display for the other views; never added to the total.
+  for (const target of input.extra ?? []) price(target)
 
   return { currency: 'USD', total, pricedTokens, unpricedTokens, source: table.source, updatedAt: table.updatedAt }
 }
