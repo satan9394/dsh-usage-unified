@@ -15,7 +15,7 @@
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { mkdir, readdir, readFile, writeFile, access } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile, access } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { UnifiedIndexStore } from '../lib/index.js'
@@ -91,10 +91,15 @@ if (projection !== undefined) {
 }
 
 // Optional: the tokscale Wrapped image, when `tokscale wrapped` has been run.
-let hasWrapped = false
+// Its age is reported with it: the image is a snapshot of whatever the scanner
+// saw on the day it was generated, and an undated chart embedded in a fresh
+// report reads as current when it may not be.
+let wrappedAt = null
 try {
-  await access(join(projectRoot, 'tokscale-wrapped.png'))
-  hasWrapped = true
+  const wrappedPath = join(projectRoot, 'tokscale-wrapped.png')
+  await access(wrappedPath)
+  const info = await stat(wrappedPath)
+  wrappedAt = new Date(info.mtimeMs).toLocaleString()
 } catch { /* not generated yet */ }
 
 // Optional: the reader's own tokscale profile card + live rank. Opt-in — only
@@ -316,9 +321,9 @@ const html = `<!doctype html>
     <table><thead><tr><th>单位</th><th class="num">数值</th></tr></thead><tbody>${unitRows}</tbody></table>
     <div class="note">1 亿 = 100,000,000；1 B = 1,000,000,000（十亿）；1 万 = 10,000。</div></section>
 
-  ${hasWrapped ? `<section><h2>Tokscale Wrapped（嵌入你 star 的 <a href="https://github.com/junhoyeo/tokscale" style="color:#65a9ff">junhoyeo/tokscale</a>）</h2>
+  ${wrappedAt !== null ? `<section><h2>Tokscale Wrapped（嵌入你 star 的 <a href="https://github.com/junhoyeo/tokscale" style="color:#65a9ff">junhoyeo/tokscale</a>）</h2>
     <img class="wrapped" src="tokscale-wrapped.png" alt="tokscale wrapped" />
-    <div class="note">由 <code>bun x tokscale@latest wrapped -c dsh --clients</code> 生成 · MIT © junhoyeo/tokscale。数据源为本机 DSH 会话（完整版）；tokscale 原生 DSH 解析只认旧文件名 <code>session.jsonl.zstd</code>，会漏掉 <code>session.v3.*</code>。该缺陷已由 <a href="https://github.com/junhoyeo/tokscale/pull/1328">tokscale#1328</a> 修复并随 <b>v4.17.0</b> 发布，tokscale 现在直接读版本化日志；本仓库原先的导出器与 <code>extraScanPaths.dsh</code> 条目已按此**退休**（保留会重复计数，实测 DSH 24.80B vs 15.38B）。</div></section>` : ''}
+    <div class="note"><b>这张图生成于 ${esc(wrappedAt)}</b>，不是本次报告的数据——它是一次快照，重新生成需手动运行 <code>bun x tokscale@latest wrapped -c dsh --clients</code>（MIT © junhoyeo/tokscale）。tokscale 的 DSH 解析目前仍少算约 12%：会话目录同时存在两代日志时它取旧的那份，见 <a href="https://github.com/junhoyeo/tokscale/issues/1348">tokscale#1348</a>；修好后重新生成即可。</div></section>` : ''}
 
   ${tokscaleProfile}
 
