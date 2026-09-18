@@ -27,7 +27,7 @@ dsh --profile <profile> --dump-config | Select-String usage-unified
 #   - id: usage-unified
 #     name: dsh-usage-unified
 #     inject: [webServer]
-#     config: { apiPath: /usage-unified/v1, ... }
+#     config: { apiPath: /usage-unified/v1, pricingPath: <DSH_HOME>/usage-unified/pricing.json, indexConcurrency: 4, ... }
 
 # runtime check (loopback only)
 #   GET http://127.0.0.1:<port>/usage-unified/v1/snapshot?range=30d  -> 200
@@ -42,8 +42,11 @@ The package ships its build output (`lib/index.js`, `lib/index.d.ts`,
 
 ## Evidence
 
-- `npm run check` (typecheck + 46 unit tests + build) passes.
+- `npm run check` (typecheck + 62 unit tests + build) passes.
 - `npm run verify:realdata` reads this machine's real dsh homes in **both** log
   formats and cross-checks folded tokens against an independently coded
   reconstruction (exact match).
+- `npm run smoke:local` runs 8 HTTP assertions against real data (snapshot
+  7d/all, main scope, calls, **session ranking + drill-down**, CSV, JSON, 404)
+  without installing anything into a DSH profile.
 - `dsh --profile web --dump-config` shows the resolved `usage-unified` row above.

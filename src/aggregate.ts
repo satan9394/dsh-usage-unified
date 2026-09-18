@@ -14,7 +14,7 @@
  * @module dsh-usage-unified/aggregate
  */
 
-import { hasWork, isSubtask, todayKey, type FoldCall, type SessionFold } from './fold.ts'
+import { hasWork, isSubtask, todayKey, UNKNOWN_MODEL_KEY, type FoldCall, type SessionFold } from './fold.ts'
 import {
   addTally,
   totalOf,
@@ -27,6 +27,7 @@ import {
   type ModelStats,
   type ModelTally,
   type RangeId,
+  type SessionStats,
   type TaskScope,
   type TimeBucket,
   type TokenBreakdown,
@@ -34,6 +35,14 @@ import {
 } from './types.ts'
 
 const DAY_MS = 86_400_000
+
+/** How many session rows a snapshot carries; the panel renders fewer. */
+export const SESSION_LIMIT = 100
+
+/** Same session across format generations: v3 prefixes the header id. */
+export function sessionKey(id: string): string {
+  return id.replace(/^session-/, '')
+}
 
 /** How many days each bounded range covers, today included. */
 const RANGE_DAYS: Record<Exclude<RangeId, 'all'>, number> = { year: 365, '30d': 30, '7d': 7 }
@@ -201,6 +210,8 @@ export interface AggregateResult {
   hours: TimeBucket[]
   models: ModelStats[]
   workspaces: { path: string; sessions: number }[]
+  sessions: SessionStats[]
+  sessionTotal: number
   coverage: Omit<Coverage, 'skippedArtifacts'>
 }
 
@@ -257,6 +268,103 @@ export function peakHourOf(hours: readonly TimeBucket[]): number | null {
     }
   }
   return peak
+}
+
+/**
+ * Rank sessions by what they spent inside the window.
+ *
+ * All-time reads each fold's authoritative counters; a bounded range sums the
+ * in-range day slices, so a session that only touched part of the window is
+ * ranked by that part. Sessions with no activity in the window are dropped.
+ */
+export function sessionRowsFor(
+  scoped: readonly SessionFold[],
+  all: boolean,
+  inRange: (day: string) => boolean,
+): { rows: SessionStats[]; total: number } {
+  const rows: SessionStats[] = []
+  for (const fold of scoped) {
+    const tallies = new Map<string, ModelTally>()
+    let tokens = 0
+    let input = 0
+    let output = 0
+    let cacheRead = 0
+    let cacheWrite = 0
+    let reasoning = 0
+    let messages = 0
+    let calls = 0
+
+    if (all) {
+      tokens = totalOf(fold.totals)
+      input = fold.totals.input
+      output = fold.totals.output
+      cacheRead = fold.totals.cacheRead
+      cacheWrite = fold.totals.cacheWrite
+      reasoning = fold.reasoningTokens
+      messages = fold.humanMessages + fold.assistantMessages
+      calls = Object.keys(fold.calls).length
+      for (const [key, tally] of Object.entries(fold.models)) tallies.set(key, tally)
+    } else {
+      for (const [day, slice] of Object.entries(fold.days)) {
+        if (!inRange(day)) continue
+        tokens += slice.tokens
+        messages += slice.messages
+        for (const [key, tally] of Object.entries(slice.models)) {
+          const target = tallies.get(key) ?? zeroTally()
+          addTally(target, tally)
+          tallies.set(key, target)
+        }
+      }
+      if (tokens === 0 && messages === 0) continue
+      for (const tally of tallies.values()) {
+        input += tally.buckets.input
+        output += tally.buckets.output
+        cacheRead += tally.buckets.cacheRead
+        cacheWrite += tally.buckets.cacheWrite
+        reasoning += tally.reasoning
+      }
+      for (const call of Object.values(fold.calls)) {
+        if (call.day !== null && inRange(call.day)) calls += 1
+      }
+    }
+
+    let topModel = UNKNOWN_MODEL_KEY
+    let topModelTokens = 0
+    for (const [key, tally] of tallies) {
+      const value = totalOf(tally.buckets)
+      if (value > topModelTokens || (value === topModelTokens && key < topModel)) {
+        topModel = key
+        topModelTokens = value
+      }
+    }
+    const slash = topModel.indexOf('/')
+    const row: SessionStats = {
+      sessionId: fold.id,
+      home: fold.home,
+      subtask: isSubtask(fold),
+      createdAt: fold.createdAt,
+      startTime: fold.firstTime,
+      endTime: fold.lastTime,
+      tokens,
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      reasoning,
+      calls,
+      messages,
+      topModel,
+      topModelProvider: slash < 0 ? 'unknown' : topModel.slice(0, slash),
+      topModelTokens,
+      modelCount: tallies.size,
+    }
+    if (fold.cwd !== undefined) row.cwd = fold.cwd
+    rows.push(row)
+  }
+  rows.sort((a, b) => b.tokens - a.tokens || b.calls - a.calls || a.sessionId.localeCompare(b.sessionId))
+  const total = rows.length
+  if (rows.length > SESSION_LIMIT) rows.length = SESSION_LIMIT
+  return { rows, total }
 }
 
 /**
@@ -410,6 +518,8 @@ export function aggregateSnapshot(input: readonly SessionFold[], query: Snapshot
   const workspaceRows = [...workspaces].map(([path, sessions]) => ({ path, sessions }))
     .sort((a, b) => b.sessions - a.sessions || a.path.localeCompare(b.path))
 
+  const sessionRows = sessionRowsFor(scoped, all, inRange)
+
   return {
     tz: query.timeZone,
     range: query.range,
@@ -422,6 +532,8 @@ export function aggregateSnapshot(input: readonly SessionFold[], query: Snapshot
     hours,
     models: modelRows,
     workspaces: workspaceRows,
+    sessions: sessionRows.rows,
+    sessionTotal: sessionRows.total,
     coverage: { steps, stepsWithoutUsage, retriedSteps, truncatedSessions },
   }
 }
@@ -430,6 +542,8 @@ export function aggregateSnapshot(input: readonly SessionFold[], query: Snapshot
 export interface CallsQuery extends SnapshotQuery {
   model?: string
   provider?: string
+  /** Session id from the ranking panel's drill-down. */
+  session?: string
   minInputTokens?: number
   minOutputTokens?: number
   maxRecords: number
@@ -462,8 +576,10 @@ function callToRecord(fold: SessionFold, call: FoldCall): CallRecord {
 export function collectCalls(input: readonly SessionFold[], query: CallsQuery): CallRecord[] {
   const folds = dedupeFolds(input).filter(hasWork).filter(fold => inScope(fold, query))
   const all = query.range === 'all'
+  const wanted = query.session === undefined ? null : sessionKey(query.session)
   const rows: CallRecord[] = []
   for (const fold of folds) {
+    if (wanted !== null && sessionKey(fold.id) !== wanted) continue
     for (const call of Object.values(fold.calls)) {
       if (!all) {
         if (call.day === null || call.day < query.from || call.day > query.to) continue

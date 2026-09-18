@@ -71,6 +71,8 @@ export interface CallsRequest {
   workspace: string
   model: string
   provider: string
+  /** Session id from the ranking drill-down; '' means no session filter. */
+  session: string
   minInputTokens: string
   minOutputTokens: string
   page: number
@@ -87,6 +89,7 @@ export async function fetchCalls(request: CallsRequest, signal: AbortSignal): Pr
   params.set('maxRecords', String(request.maxRecords))
   if (request.model !== '') params.set('model', request.model)
   if (request.provider !== '') params.set('provider', request.provider)
+  if (request.session !== '') params.set('session', request.session)
   if (request.minInputTokens !== '') params.set('minInputTokens', request.minInputTokens)
   if (request.minOutputTokens !== '') params.set('minOutputTokens', request.minOutputTokens)
   const response = await fetch(`${API_PATH}/calls?${params}`, { signal, headers: { accept: 'application/json' } })

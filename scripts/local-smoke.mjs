@@ -30,6 +30,7 @@ const API = DEFAULT_API_PATH
 const CURRENT_HOME = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
 const cachePath = join(projectRoot, '.smoke-cache', hasFlag('--fresh') ? `index-${Date.now()}.json` : 'index-v1.json')
+const pricingPath = valueOf('--pricing', join(CURRENT_HOME, 'usage-unified', 'pricing.json'))
 const serve = hasFlag('--serve')
 
 const fmt = n => new Intl.NumberFormat('en-US').format(Math.round(n))
@@ -48,6 +49,7 @@ const store = new UnifiedIndexStore({
   chunkYieldMs: 16,
   currentHome: CURRENT_HOME,
   cachePath,
+  pricingPath,
   cacheWriteDelayMs: 1000,
 })
 const started = Date.now()
@@ -123,6 +125,22 @@ await check('GET /calls?range=all', async () => {
   const page = await getJson(`${API}/calls?range=all&pageSize=3`)
   if (page.items.length === 0) throw new Error('no call rows')
   return `total=${page.total}, first=${page.items[0].provider}/${page.items[0].model}`
+})
+await check('session ranking + drill-down', async () => {
+  const snapshot = await getJson(`${API}/snapshot?range=all`)
+  const sessions = snapshot.sessions
+  if (!Array.isArray(sessions) || sessions.length === 0) throw new Error('no session ranking')
+  if (!(snapshot.sessionTotal >= sessions.length)) throw new Error('sessionTotal below the page size')
+  const top = sessions[0]
+  if (!(top.tokens > 0)) throw new Error('top session has no tokens')
+  const drained = sessions.some(row => row.tokens < (sessions[sessions.length - 1]?.tokens ?? 0))
+  if (drained) throw new Error('session ranking is not sorted by tokens')
+  const page = await getJson(`${API}/calls?range=all&session=${encodeURIComponent(top.sessionId)}&pageSize=5`)
+  if (page.items.length === 0) throw new Error('drill-down returned no calls')
+  const foreign = page.items.find(item => item.sessionId.replace(/^session-/, '') !== top.sessionId.replace(/^session-/, ''))
+  if (foreign !== undefined) throw new Error(`drill-down leaked session ${foreign.sessionId}`)
+  const cost = snapshot.cost === null ? 'no pricing table' : `cost ≈$${snapshot.cost.total.toFixed(2)} (${snapshot.cost.source})`
+  return `${sessions.length}/${snapshot.sessionTotal} ranked, top=${top.tokens} tokens, ${cost}`
 })
 await check('GET /export.csv', async () => {
   const response = await fetch(`${base}${API}/export.csv?range=30d`)

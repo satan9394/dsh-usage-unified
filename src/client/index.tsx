@@ -3,10 +3,10 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { CallRecord, CallsPage, ModelStats, RangeId, Snapshot, TaskScope } from '../types.ts'
+import type { CallRecord, CallsPage, ModelStats, RangeId, SessionStats, Snapshot, TaskScope } from '../types.ts'
 import type { ClientContextLike } from './runtime.d.ts'
 import { formatDateLabel, formatHour, installLocale, NS, useLocale, type I18nKey } from './i18n.ts'
 import { exportUrl, fetchCalls, fetchSnapshot, type CustomRange } from './source.ts'
@@ -75,6 +75,57 @@ function localDate(offset = 0): string {
 
 function Card({ icon, label, value, detail, accent, hero, spark }: { icon: IconName; label: string; value: ReactNode; detail?: string | undefined; accent?: string; hero?: boolean; spark?: ReactNode }): ReactNode {
   return <article className="us-card" data-hero={hero ? 'true' : undefined} style={accent === undefined ? undefined : ({ '--us-accent-card': accent } as React.CSSProperties)}>{hero && <span className="us-sheen" aria-hidden="true" />}<div className="us-card-label"><Icon name={icon} size={16} />{label}</div><div className="us-card-value">{value}</div>{detail && <div className="us-card-detail" title={detail}>{detail}</div>}{spark}</article>
+}
+
+/** Compact USD, with the precision the magnitude actually deserves. */
+function formatCost(value: number, numberLocale: string): string {
+  const digits = value >= 1_000 ? 0 : value >= 10 ? 1 : 2
+  return new Intl.NumberFormat(numberLocale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value)
+}
+
+/** Panel open/closed memory, keyed by panel id. */
+class PanelStore {
+  private readonly state = new Map<string, boolean>()
+  private readonly listeners = new Set<() => void>()
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+  isOpen = (id: string, fallback: boolean): boolean => this.state.get(id) ?? fallback
+  toggle = (id: string, fallback: boolean): void => { this.state.set(id, !this.isOpen(id, fallback)); this.emit() }
+  open = (id: string): void => { this.state.set(id, true); this.emit() }
+  private emit(): void { for (const listener of this.listeners) listener() }
+}
+
+const panels = new PanelStore()
+
+/**
+ * A dashboard panel whose header toggles its body.
+ *
+ * The open/closed flag lives in a module store rather than component state so
+ * a collapse survives the overlay unmounting between sidebar clicks, and so
+ * one panel can reveal another (the session drill-down opens the call table).
+ */
+function Panel({ id, title, note, className, children, defaultOpen = true }: {
+  id: string
+  title: string
+  note?: ReactNode
+  className?: string
+  children: ReactNode
+  defaultOpen?: boolean
+}): ReactNode {
+  const { t } = useLocale()
+  const open = useSyncExternalStore(panels.subscribe, () => panels.isOpen(id, defaultOpen))
+  return <section className={className === undefined ? 'us-panel' : `us-panel ${className}`} data-collapsed={open ? undefined : 'true'}>
+    <div className="us-panel-head">
+      <button type="button" className="us-panel-toggle" aria-expanded={open} aria-controls={`us-panel-${id}`} title={open ? t('collapsePanel') : t('expandPanel')} onClick={() => panels.toggle(id, defaultOpen)}>
+        <svg className="us-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
+        <span className="us-panel-title">{title}</span>
+      </button>
+      {note !== undefined && <span className="us-panel-note">{note}</span>}
+    </div>
+    {open && <div className="us-panel-body" id={`us-panel-${id}`}>{children}</div>}
+  </section>
 }
 
 interface SelectOption {
@@ -193,8 +244,7 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
     setHover(index)
     setTipAt({ x: rect.left + (xAt(index) - padL) / plotW * rect.width, y: rect.top + (yAt(value) - padT) / plotH * rect.height })
   }
-  return <section className="us-panel us-trend">
-    <div className="us-panel-head"><span className="us-panel-title">{t('dailyTrend')}</span></div>
+  return <Panel id="trend" title={t('dailyTrend')} className="us-trend">
     <div className="us-trend-chart">
       <svg className="us-trend-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('dailyTrend')}>
         <defs><linearGradient id="us-total-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#922bff" stopOpacity="0.3" /><stop offset="100%" stopColor="#922bff" stopOpacity="0.02" /></linearGradient></defs>
@@ -214,16 +264,9 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
       </div>, document.body)}
     </div>
     <div className="us-trend-legend">{series.map(item => <button key={item.id} type="button" style={{ '--us-series': item.color } as React.CSSProperties} aria-pressed={!off[item.id]} onClick={() => setOff(current => ({ ...current, [item.id]: !current[item.id] }))}><i />{item.label}</button>)}</div>
-  </section>
+  </Panel>
 }
 
-
-function ModelUsage({ snapshot }: { snapshot: Snapshot }): ReactNode {
-  const { t, numberLocale } = useLocale()
-  const p1 = Math.min(100, snapshot.models[0]?.percent ?? 0)
-  const p2 = Math.min(100, p1 + (snapshot.models[1]?.percent ?? 0))
-  return <section className="us-panel"><div className="us-panel-head"><span className="us-panel-title">{t('modelUsage')}</span><span className="us-panel-note">{t('tokenSummary')}</span></div><div className="us-model-layout"><div className="us-donut" style={{ '--us-p1': `${p1}%`, '--us-p2': `${p2}%` } as React.CSSProperties}><div className="us-donut-center">{compact(snapshot.totals.tokens, numberLocale)}<small>tokens</small></div></div><div>{snapshot.models.slice(0, 8).map(model => <div className="us-model-row" key={model.key}><span className="us-model-name"><i className="us-dot" />{model.model}</span><span className="us-model-percent">{model.percent.toFixed(model.percent < 10 ? 1 : 0)}%</span><span className="us-model-meta">{model.provider} · {compact(model.tokens, numberLocale)} tokens · {model.calls} {t('callsCount')}</span></div>)}</div></div></section>
-}
 
 const BUCKETS = ['input', 'cacheRead', 'cacheWrite', 'output'] as const
 const BUCKET_LABEL: Record<(typeof BUCKETS)[number], I18nKey> = {
@@ -233,19 +276,126 @@ const BUCKET_LABEL: Record<(typeof BUCKETS)[number], I18nKey> = {
   output: 'bucketOutput',
 }
 
-function BucketBars({ models }: { models: readonly ModelStats[] }): ReactNode {
+/** Models listed before the panel asks whether you want the rest. */
+const MODEL_ROW_LIMIT = 6
+
+/**
+ * Usage and composition of every model, in one panel.
+ *
+ * The share of the total, the four-bucket split and the call count all answer
+ * "what did this model cost me", so they belong on one row; the previous
+ * separate "per-model token split" panel repeated the same model list under a
+ * second heading. Long tails are hidden behind a toggle — a machine that has
+ * seen thirty model ids does not need thirty rows by default.
+ */
+function ModelPanel({ snapshot }: { snapshot: Snapshot }): ReactNode {
   const { t, numberLocale } = useLocale()
-  return <section className="us-panel"><div className="us-panel-head"><span className="us-panel-title">{t('modelBuckets')}</span><span className="us-panel-note us-bucket-legend">{BUCKETS.map(bucket => <span key={bucket}><i className="us-dot us-bucket-seg" data-bucket={bucket} style={{ width: 8, height: 8, borderRadius: 2, marginRight: 6 }} />{t(BUCKET_LABEL[bucket])}</span>)}</span></div><div className="us-buckets">{models.slice(0, 12).map(model => <div className="us-bucket-row" key={model.key}><div className="us-bucket-head"><span className="us-bucket-name" title={model.key}>{model.model} · {model.provider}</span><span className="us-bucket-total">{compact(model.tokens, numberLocale)}</span></div><div className="us-bucket-stack">{BUCKETS.map(bucket => {
-    const value = model[bucket]
-    if (value <= 0 || model.tokens <= 0) return null
-    return <span key={bucket} className="us-bucket-seg" data-bucket={bucket} style={{ width: `${value / model.tokens * 100}%` }} title={`${t(BUCKET_LABEL[bucket])}: ${new Intl.NumberFormat(numberLocale).format(value)}`} />
-  })}</div></div>)}</div></section>
+  const [expanded, setExpanded] = useState(false)
+  const models = snapshot.models
+  const p1 = Math.min(100, models[0]?.percent ?? 0)
+  const p2 = Math.min(100, p1 + (models[1]?.percent ?? 0))
+  const rows = expanded ? models : models.slice(0, MODEL_ROW_LIMIT)
+  const legend = <span className="us-bucket-legend">{BUCKETS.map(bucket => <span key={bucket}><i className="us-bucket-key" data-bucket={bucket} />{t(BUCKET_LABEL[bucket])}</span>)}</span>
+  return <Panel id="models" title={t('modelUsage')} note={legend}>
+    <div className="us-model-layout">
+      <div className="us-donut" style={{ '--us-p1': `${p1}%`, '--us-p2': `${p2}%` } as React.CSSProperties}>
+        <div className="us-donut-center">{compact(snapshot.totals.tokens, numberLocale)}<small>tokens</small></div>
+      </div>
+      <div className="us-model-list">
+        {models.length === 0 && <div className="us-model-meta">{t('noData')}</div>}
+        {rows.map(model => <div className="us-model-row" key={model.key}>
+          <div className="us-model-line">
+            <span className="us-model-name" title={model.key}>{model.model}</span>
+            <span className="us-model-percent">{model.percent.toFixed(model.percent < 10 ? 1 : 0)}%</span>
+            <span className="us-model-total">{compact(model.tokens, numberLocale)}</span>
+          </div>
+          <div className="us-bucket-stack">{BUCKETS.map(bucket => {
+            const value = model[bucket]
+            if (value <= 0 || model.tokens <= 0) return null
+            return <span key={bucket} className="us-bucket-seg" data-bucket={bucket} style={{ width: `${value / model.tokens * 100}%` }} title={`${t(BUCKET_LABEL[bucket])}: ${new Intl.NumberFormat(numberLocale).format(value)}`} />
+          })}</div>
+          <div className="us-model-meta">
+            {model.provider} · {model.calls} {t('callsCount')}
+            {model.costUsd !== undefined && ` · ≈$${formatCost(model.costUsd, numberLocale)}`}
+          </div>
+        </div>)}
+        {models.length > MODEL_ROW_LIMIT && <button type="button" className="us-model-more" onClick={() => setExpanded(current => !current)}>
+          {expanded ? t('showLess') : t('showAllModels', { n: models.length })}
+        </button>}
+      </div>
+    </div>
+  </Panel>
+}
+
+/** Sessions listed before the panel asks whether you want the rest. */
+const SESSION_ROW_LIMIT = 8
+
+/** A session's working-directory leaf, falling back to a clipped id. */
+function sessionLabel(row: SessionStats): string {
+  if (row.cwd !== undefined) {
+    const parts = row.cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
+    const leaf = parts[parts.length - 1]
+    if (leaf !== undefined && leaf.length > 0) return leaf
+  }
+  return row.sessionId.length > 16 ? `${row.sessionId.slice(0, 16)}…` : row.sessionId
+}
+
+/**
+ * Sessions ranked by tokens, with a click-through into their call rows.
+ *
+ * Ranking is a ranking, not a chart, so it is a table: the drill-down reuses
+ * the existing call-detail route with a session filter rather than adding a
+ * second detail view that could disagree with the first.
+ */
+function SessionRanking({ snapshot, onSelect }: { snapshot: Snapshot; onSelect: (sessionId: string) => void }): ReactNode {
+  const { t, numberLocale } = useLocale()
+  const [expanded, setExpanded] = useState(false)
+  const rows = expanded ? snapshot.sessions : snapshot.sessions.slice(0, SESSION_ROW_LIMIT)
+  return <Panel id="sessions" title={t('sessionRanking')} note={t('sessionNote')}>
+    {snapshot.sessions.length === 0 ? <div className="us-model-meta">{t('sessionEmpty')}</div> : <>
+      <div className="us-session-wrap">
+        <table className="us-session-table" aria-label={t('sessionRanking')}>
+          <thead><tr>
+            <th>{t('sessionColName')}</th>
+            <th>{t('sessionColSpan')}</th>
+            <th className="us-number">{t('sessionColDuration')}</th>
+            <th className="us-number">{t('sessionColTokens')}</th>
+            <th className="us-number">{t('sessionColMessages')}</th>
+            <th>{t('sessionColModel')}</th>
+          </tr></thead>
+          <tbody>{rows.map(row => <tr
+            key={row.sessionId}
+            tabIndex={0}
+            role="button"
+            aria-label={`${sessionLabel(row)} → ${t('callsTitle')}`}
+            onClick={() => onSelect(row.sessionId)}
+            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(row.sessionId) } }}
+          >
+            <td className="us-session-name" title={row.cwd ?? row.sessionId}>{sessionLabel(row)}{row.subtask && <span className="us-subnote">{t('sessionSubtask')}</span>}</td>
+            <td className="us-session-span" title={formatExactTime(row.startTime ?? row.createdAt, numberLocale)}>{formatCallTime(row.startTime ?? row.createdAt)}</td>
+            <td className="us-number">{formatCallDuration(row.startTime === null || row.endTime === null ? null : row.endTime - row.startTime, t)}</td>
+            <td className="us-number" title={formatExactTokens(row.tokens, numberLocale)}>{compact(row.tokens, numberLocale)}</td>
+            <td className="us-number">{row.messages}</td>
+            <td className="us-session-model" title={row.topModel}>{row.topModel.slice(row.topModel.indexOf('/') + 1)}{row.modelCount > 1 && <span className="us-subnote">+{row.modelCount - 1}</span>}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <div className="us-session-foot">
+        <span className="us-model-meta">{t('sessionCount', { n: snapshot.sessionTotal })}</span>
+        {snapshot.sessions.length > SESSION_ROW_LIMIT && <button type="button" className="us-model-more" onClick={() => setExpanded(current => !current)}>
+          {expanded ? t('showLess') : t('showAllSessions', { n: snapshot.sessions.length })}
+        </button>}
+      </div>
+    </>}
+  </Panel>
 }
 
 function Breakdown({ snapshot }: { snapshot: Snapshot }): ReactNode {
   const { t, numberLocale } = useLocale()
   const rows = [[t('input'), snapshot.totals.input], [t('output'), snapshot.totals.output], [t('cacheRead'), snapshot.totals.cacheRead], [t('cacheWrite'), snapshot.totals.cacheWrite]] as const
-  return <section className="us-panel"><div className="us-panel-head"><span className="us-panel-title">{t('tokenComposition')}</span><span className="us-panel-note">{t('cacheIncludedNote')}</span></div><div className="us-breakdown">{rows.map(([label, value]) => <div className="us-break-item" key={label}><span>{label}</span><strong>{compact(value, numberLocale)}</strong></div>)}</div></section>
+  return <Panel id="breakdown" title={t('tokenComposition')} note={t('cacheIncludedNote')}>
+    <div className="us-breakdown">{rows.map(([label, value]) => <div className="us-break-item" key={label}><span>{label}</span><strong>{compact(value, numberLocale)}</strong></div>)}</div>
+  </Panel>
 }
 
 function formatCallTime(value: number): string {
@@ -316,7 +466,7 @@ function initialMaxRecords(): number {
   }
 }
 
-function CallsPanel({ snapshot, range, scope, workspace, custom }: { snapshot: Snapshot; range: RangeId; scope: TaskScope; workspace: string; custom?: CustomRange | undefined }): ReactNode {
+function CallsPanel({ snapshot, range, scope, workspace, session, onClearSession, custom }: { snapshot: Snapshot; range: RangeId; scope: TaskScope; workspace: string; session: string; onClearSession: () => void; custom?: CustomRange | undefined }): ReactNode {
   const { t, numberLocale } = useLocale()
   const [page, setPage] = useState(1)
   const [model, setModel] = useState('')
@@ -329,7 +479,7 @@ function CallsPanel({ snapshot, range, scope, workspace, custom }: { snapshot: S
   const [maxRecords, setMaxRecords] = useState(initialMaxRecords)
   const [data, setData] = useState<CallsPage | null>(null)
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => { setPage(1) }, [range, scope, workspace])
+  useEffect(() => { setPage(1) }, [range, scope, workspace, session])
   useEffect(() => {
     const timer = window.setTimeout(() => { setDebouncedMinInput(minInput); setDebouncedMinOutput(minOutput) }, 250)
     return () => { window.clearTimeout(timer) }
@@ -343,11 +493,11 @@ function CallsPanel({ snapshot, range, scope, workspace, custom }: { snapshot: S
   useEffect(() => {
     const abort = new AbortController()
     setError(null)
-    fetchCalls({ range, scope, workspace, model, provider, minInputTokens: debouncedMinInput, minOutputTokens: debouncedMinOutput, page, pageSize, maxRecords, ...(custom === undefined ? {} : { custom }) }, abort.signal)
+    fetchCalls({ range, scope, workspace, model, provider, session, minInputTokens: debouncedMinInput, minOutputTokens: debouncedMinOutput, page, pageSize, maxRecords, ...(custom === undefined ? {} : { custom }) }, abort.signal)
       .then(setData)
       .catch((reason: unknown) => { if ((reason as { name?: string }).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { abort.abort() }
-  }, [range, scope, workspace, model, provider, debouncedMinInput, debouncedMinOutput, page, pageSize, maxRecords, custom])
+  }, [range, scope, workspace, model, provider, session, debouncedMinInput, debouncedMinOutput, page, pageSize, maxRecords, custom])
   const modelOptions = useMemo(() => ['', ...new Set((snapshot.models ?? []).map(item => item.model))], [snapshot.models])
   const providerOptions = useMemo(() => ['', ...new Set((snapshot.models ?? []).map(item => item.provider))], [snapshot.models])
   const hasFilters = model !== '' || provider !== '' || minInput !== '' || minOutput !== ''
@@ -359,7 +509,9 @@ function CallsPanel({ snapshot, range, scope, workspace, custom }: { snapshot: S
     : !data.indexReady ? <div className="us-state">{t('callsIndexing')}</div>
     : data.items.length === 0 ? <div className="us-state">{t('callsEmpty')}</div>
     : <div className="us-calls-wrap"><table className="us-calls-table" aria-label={t('callsTitle')}><colgroup><col className="us-col-time" /><col className="us-col-duration" /><col className="us-col-token" /><col className="us-col-token" /><col className="us-col-cache" /><col className="us-col-model" /><col className="us-col-effort" /></colgroup><thead><tr><th>{t('colTime')}</th><th className="us-number">{t('colDuration')}</th><th className="us-number">{t('colInput')}</th><th className="us-number">{t('colOutput')}</th><th className="us-number">{t('colCacheRate')}</th><th>{t('colModel')}</th><th className="us-center">{t('colEffort')}</th></tr></thead><tbody>{data.items.map(item => <tr key={item.key}><td className="us-calls-time" title={formatExactTime(item.time, numberLocale)}>{formatCallTime(item.time)}</td><td className="us-number">{formatCallDuration(item.durationMs, t)}</td><td className="us-number" title={formatExactTokens(item.tokens.input, numberLocale)}>{formatCallTokens(item.tokens.input, numberLocale)}</td><td className="us-number" title={formatExactTokens(item.tokens.output, numberLocale)}>{formatCallTokens(item.tokens.output, numberLocale)}</td><td className="us-number">{callCachePercent(item.tokens, t)}</td><td className="us-calls-model" title={`${item.provider}/${item.model}`}>{item.model}{item.subtask && <span className="us-subnote">sub</span>}</td><td className={item.effort === null ? 'us-calls-effort us-center is-empty' : 'us-calls-effort us-center'}>{formatEffort(item.effort, t)}</td></tr>)}</tbody></table><div className="us-calls-pager"><span>{t('pageInfo', { start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, data.total), total: data.total })}</span><div className="us-calls-page-buttons"><button type="button" aria-label={t('prevPage')} title={t('prevPage')} disabled={page <= 1} onClick={() => setPage(page - 1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m9.5 4-4 4 4 4" /></svg></button><button type="button" aria-label={t('nextPage')} title={t('nextPage')} disabled={!data.hasMore} onClick={() => setPage(page + 1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6.5 4 4 4-4 4" /></svg></button></div></div></div>
-  return <section className="us-panel"><div className="us-panel-head"><span className="us-panel-title">{t('callsTitle')}</span><span className="us-panel-note">{t('callsNote')}</span></div><div className="us-calls-toolbar">
+  return <Panel id="calls" title={t('callsTitle')} note={t('callsNote')} className="us-panel-calls">
+    <div className="us-calls-toolbar">
+    {session !== '' && <button type="button" className="us-calls-chip" title={t('clearSessionFilter')} onClick={onClearSession}>{t('filteringSession', { id: session.length > 18 ? `${session.slice(0, 18)}…` : session })}<span aria-hidden="true">×</span></button>}
     <SelectControl className="us-calls-select" label={t('colModel')} value={model} options={modelOptions.map(value => ({ value, label: value === '' ? t('allModels') : value }))} onChange={value => { setModel(value); setPage(1) }} />
     <SelectControl className="us-calls-select" label={t('allProviders')} value={provider} options={providerOptions.map(value => ({ value, label: value === '' ? t('allProviders') : value }))} onChange={value => { setProvider(value); setPage(1) }} />
     <label className="us-calls-number-field"><input className="us-calls-number-input" type="text" inputMode="numeric" value={minInput} aria-label={t('minInput')} placeholder={t('minInput')} onChange={event => { setMinInput(event.target.value.replace(/\D/g, '')); setPage(1) }} /><span>{t('tokenUnit')}</span></label>
@@ -368,7 +520,7 @@ function CallsPanel({ snapshot, range, scope, workspace, custom }: { snapshot: S
     <span className="us-spacer" />
     <SelectControl className="us-calls-select us-calls-max-records" label={t('maxRecords', { size: maxRecords.toLocaleString(numberLocale) })} triggerLabel={t('maxRecords', { size: maxRecords.toLocaleString(numberLocale) })} value={String(maxRecords)} options={MAX_RECORD_OPTIONS.map(value => ({ value: String(value), label: t('recordCount', { size: value.toLocaleString(numberLocale) }) }))} onChange={value => { setMaxRecords(Number(value)); setPage(1) }} />
     <SelectControl className="us-calls-select us-calls-page-size" label={t('perPage', { size: pageSize })} value={String(pageSize)} options={PAGE_SIZE_OPTIONS.map(value => ({ value: String(value), label: t('perPage', { size: value }) }))} onChange={value => { setPageSize(Number(value)); setPage(1) }} />
-  </div>{content}</section>
+  </div>{content}</Panel>
 }
 
 function relativeWhen(t: (key: I18nKey, vars?: Record<string, string | number>) => string, at: number | null, now: number): string {
@@ -395,6 +547,7 @@ function Footer({ snapshot }: { snapshot: Snapshot }): ReactNode {
   if (coverage.retriedSteps > 0) items.push(t('footRetried', { n: coverage.retriedSteps }))
   if (coverage.truncatedSessions > 0) items.push(t('footTruncated', { n: coverage.truncatedSessions }))
   if (coverage.skippedArtifacts > 0) items.push(t('footSkipped', { n: coverage.skippedArtifacts }))
+  if (snapshot.cost === null) items.push(t('costUnavailable'))
   return <div className="us-foot">{items.map(item => <span className="us-foot-item" key={item}>{item}</span>)}</div>
 }
 
@@ -410,6 +563,7 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
   const [custom, setCustom] = useState<CustomRange | null>(null)
   const [scope, setScope] = useState<TaskScope>('all')
   const [workspace, setWorkspace] = useState('')
+  const [session, setSession] = useState('')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback((signal: AbortSignal) => {
@@ -425,6 +579,14 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
   }, [hide])
+  // A drill-down is scoped to the window it was made in, so switching the
+  // window drops it rather than showing an empty table with no explanation.
+  useEffect(() => { setSession('') }, [range, scope, workspace, custom])
+  const drillInto = useCallback((sessionId: string) => {
+    setSession(sessionId)
+    panels.open('calls')
+    window.setTimeout(() => { document.querySelector('.us-panel-calls')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 90)
+  }, [])
   const workspaceOptions = useMemo<SelectOption[]>(() => [{ value: '', label: t('allWorkspaces') }, ...(snapshot?.workspaces.map(item => ({ value: item.path, label: `${item.path} (${item.sessions})` })) ?? [])], [snapshot?.workspaces, t])
   const scopeOptions: readonly SelectOption[] = [{ value: 'all', label: t('allTasks') }, { value: 'main', label: t('mainOnly') }, { value: 'subtasks', label: t('subtasksOnly') }]
   const sparkline = useMemo(() => {
@@ -444,6 +606,7 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
         <Card icon="message" label={t('messages')} value={snapshot.allTime.totals.messages} accent="#219653" />
         <Card icon="chart" label={t('calls')} value={compact(snapshot.models.reduce((sum, model) => sum + model.calls, 0), numberLocale)} accent="#22b8b5" />
         <Card icon="tokens" label={t('cacheHitRate')} value={(() => { const denom = snapshot.allTime.totals.input + snapshot.allTime.totals.cacheRead + snapshot.allTime.totals.cacheWrite; return denom > 0 ? `${(snapshot.allTime.totals.cacheRead / denom * 100).toFixed(1)}%` : '—' })()} accent="#2da2bb" />
+        {snapshot.cost !== null && <Card icon="chart" label={t('cost')} value={`≈$${formatCost(snapshot.cost.total, numberLocale)}`} detail={t('costCoverage', { percent: Math.round(snapshot.cost.pricedTokens / Math.max(1, snapshot.cost.pricedTokens + snapshot.cost.unpricedTokens) * 100), unpriced: compact(snapshot.cost.unpricedTokens, numberLocale) })} accent="#f59e0b" />}
         <Card icon="calendar" label={t('activeDays')} value={snapshot.allTime.totals.activeDays} accent="#f59e0b" />
         <Card icon="streak" label={t('streak')} value={snapshot.allTime.totals.currentStreak} accent="#ef5da8" />
         <Card icon="streak" label={t('longestStreak')} value={snapshot.allTime.totals.longestStreak} accent="#a479e2" />
@@ -453,10 +616,10 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
           : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} accent="#65a9ff" />}
       </div>
       <SmoothTrend snapshot={snapshot} />
-      <ModelUsage snapshot={snapshot} />
-      <BucketBars models={snapshot.models} />
+      <ModelPanel snapshot={snapshot} />
       <Breakdown snapshot={snapshot} />
-      <CallsPanel snapshot={snapshot} range={range} scope={scope} workspace={workspace} custom={custom ?? undefined} />
+      <SessionRanking snapshot={snapshot} onSelect={drillInto} />
+      <CallsPanel snapshot={snapshot} range={range} scope={scope} workspace={workspace} session={session} onClearSession={() => setSession('')} custom={custom ?? undefined} />
       <Footer snapshot={snapshot} />
     </>
   const toolbar: ReactNode = <>

@@ -38,6 +38,18 @@ export interface TokenBreakdown extends Buckets {
   reasoning: number
 }
 
+/**
+ * Cost estimate fields, present only when a local pricing table resolved the
+ * model. `priced: false` means the tokens are deliberately excluded from the
+ * estimate rather than counted as free.
+ */
+export interface Costed {
+  /** Estimated USD for this row; absent when the model has no price. */
+  costUsd?: number
+  /** False when the row's model was missing from the pricing table. */
+  priced?: boolean
+}
+
 /** Activity in one time bucket (a local day, or one local hour of it). */
 export interface TimeBucket {
   tokens: number
@@ -54,7 +66,7 @@ export interface ModelTally {
 }
 
 /** Per-model rollup as presented to the UI (audit-plugin naming kept). */
-export interface ModelStats extends TokenBreakdown {
+export interface ModelStats extends TokenBreakdown, Costed {
   /** `provider/model`, the attribution key. */
   key: string
   provider: string
@@ -65,6 +77,40 @@ export interface ModelStats extends TokenBreakdown {
   calls: number
   /** Share of the enclosing total, 0-100. */
   percent: number
+}
+
+/**
+ * One session's roll-up, for the ranking panel and its drill-down.
+ *
+ * Token figures follow the enclosing window, so a bounded range ranks sessions
+ * by what they spent inside it rather than by their lifetime total.
+ */
+export interface SessionStats extends TokenBreakdown, Costed {
+  /** Normalized session id; also the `/calls?session=` filter value. */
+  sessionId: string
+  /** The dsh home the session was read from. */
+  home: string
+  /** Working directory, when the session recorded one. */
+  cwd?: string
+  /** True for a delegated/subagent session. */
+  subtask: boolean
+  /** Session creation time from the log header. */
+  createdAt: number
+  /** First and last event timestamps, or null when none passed the skew guard. */
+  startTime: number | null
+  endTime: number | null
+  tokens: number
+  /** Surviving call rows in the window. */
+  calls: number
+  /** Human + non-empty assistant messages in the window. */
+  messages: number
+  /** Attribution key of the busiest model, or the unknown key. */
+  topModel: string
+  topModelProvider: string
+  /** Tokens attributed to `topModel`. */
+  topModelTokens: number
+  /** Distinct models this session used in the window. */
+  modelCount: number
 }
 
 /** One local calendar day of activity, gap-free for a bounded range. */
@@ -213,9 +259,29 @@ export interface Snapshot {
   models: ModelStats[]
   /** Distinct working directories seen, with session counts. */
   workspaces: { path: string; sessions: number }[]
+  /** Top sessions by tokens in the range, capped; `sessionTotal` is the real count. */
+  sessions: SessionStats[]
+  /** Distinct sessions with work in the range. */
+  sessionTotal: number
+  /** Cost estimate from the optional local pricing table; null when absent. */
+  cost: CostSummary | null
 
   homes: HomeInfo[]
   coverage: Coverage
+}
+
+/** Cost estimate roll-up, disclosed beside the number it explains. */
+export interface CostSummary {
+  currency: 'USD'
+  total: number
+  /** Tokens whose model had a price. */
+  pricedTokens: number
+  /** Tokens whose model had no price — excluded, never treated as free. */
+  unpricedTokens: number
+  /** Provenance label of the pricing table. */
+  source: string
+  /** Epoch ms the pricing source changed, or null when unknown. */
+  updatedAt: number | null
 }
 
 /** Failure envelope returned by the transport on a non-200. */

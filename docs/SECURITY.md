@@ -14,7 +14,13 @@ the dashboard.
   configured extra roots). Read-only; it never writes to a session.
 - **Writes**: exactly one file — the index cache at
   `$DSH_HOME/usage-unified/index-v1.json`, written atomically (temp + rename)
-  with POSIX mode **`0600`**. This is the only filesystem-permission signal.
+  with POSIX mode **`0600`**, and only when the index actually changed. This is
+  the only filesystem-permission signal.
+- **Reads (cost estimate)**: one optional extra file, the pricing table at
+  `$DSH_HOME/usage-unified/pricing.json` (path overridable via `pricingPath`).
+  When it is absent or unparseable the plugin simply reports no cost; a model
+  with no entry is disclosed as *unpriced* rather than assumed free. The file is
+  read-only input and nothing from it is written anywhere.
 - **Network**: **none**. The runtime makes no outbound request and opens no
   server socket of its own; it registers one route on the harness-provided
   `webServer` and answers **loopback callers only** (non-loopback → `403`).

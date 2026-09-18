@@ -12,13 +12,14 @@ function harness() {
       return () => {}
     },
   }
+  const callsSeen: Record<string, unknown>[] = []
   const store = {
     refresh: async () => {},
-    snapshot: () => ({ version: 1, generatedAt: 1, tz: 'UTC', range: { from: '', to: '', timeZone: 'UTC', id: 'all' }, status: { phase: 'ready', indexed: 1, total: 1, durable: true, updatedAt: 1 }, totals: {}, allTime: {}, mostUsedModel: null, days: [], hours: [], models: [], workspaces: [], homes: [], coverage: {} }),
-    calls: () => ({ indexReady: true, items: [], page: 1, pageSize: 50, total: 0, hasMore: false }),
+    snapshot: () => ({ version: 1, generatedAt: 1, tz: 'UTC', range: { from: '', to: '', timeZone: 'UTC', id: 'all' }, status: { phase: 'ready', indexed: 1, total: 1, durable: true, updatedAt: 1 }, totals: {}, allTime: {}, mostUsedModel: null, days: [], hours: [], models: [], workspaces: [], sessions: [], sessionTotal: 0, cost: null, homes: [], coverage: {} }),
+    calls: (query: Record<string, unknown>) => { callsSeen.push(query); return { indexReady: true, items: [], page: 1, pageSize: 50, total: 0, hasMore: false } },
   } as unknown as UnifiedIndexStore
   const dispose = registerRoutes(webServer, store, API)
-  return { handler: handler!, dispose }
+  return { handler: handler!, dispose, callsSeen }
 }
 
 function request(method: string, url: string, remoteAddress = '127.0.0.1'): unknown {
@@ -79,6 +80,22 @@ describe('transport routes', () => {
     const badPage = response()
     await handler(request('GET', `${API}/calls?pageSize=999`), badPage)
     expect(badPage.state.status).toBe(400)
+  })
+
+  it('passes a session drill-down through to the store, and rejects junk', async () => {
+    const { handler, callsSeen } = harness()
+    const ok = response()
+    await handler(request('GET', `${API}/calls?session=session-main`), ok)
+    expect(ok.state.status).toBe(200)
+    expect(callsSeen[0]?.['session']).toBe('session-main')
+
+    const empty = response()
+    await handler(request('GET', `${API}/calls?session=`), empty)
+    expect(empty.state.status).toBe(400)
+
+    const long = response()
+    await handler(request('GET', `${API}/calls?session=${'x'.repeat(300)}`), long)
+    expect(long.state.status).toBe(400)
   })
 
   it('sends no body for HEAD', async () => {

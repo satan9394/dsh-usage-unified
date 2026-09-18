@@ -1,7 +1,7 @@
 {
   "name": "dsh-usage-unified",
-  "version": "0.1.1",
-  "description": "Unified DeepSeek Harness usage statistics — machine-wide token accounting across every dsh home, with trends, a custom date range, per-model bucket splits, call details and CSV/JSON export.",
+  "version": "0.2.0",
+  "description": "Unified DeepSeek Harness usage statistics — machine-wide token accounting across every dsh home, with trends, a custom date range, one model panel (share + four-bucket split + call count), a session ranking with call drill-down, CSV/JSON export and an optional local cost estimate.",
   "license": "MIT",
   "author": "dsh-usage-unified contributors",
   "repository": {
@@ -63,7 +63,8 @@
     "smoke:serve": "node scripts/local-smoke.mjs --serve",
     "report": "node scripts/report.mjs --range all --open",
     "report:30d": "node scripts/report.mjs --range 30d --open",
-    "tokscale:export": "node scripts/tokscale-export.mjs",
+    "pricing:setup": "node scripts/setup-pricing.mjs",
+    "tokscale:export": "node scripts/tokscale-export.mjs (deprecated: tokscale >= 4.17.0 reads versioned dsh logs natively)",
     "leaderboard:setup": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-leaderboard.ps1",
     "leaderboard:off": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/disable-leaderboard.ps1",
     "store:watch": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/store-watch.ps1",
