@@ -72,12 +72,13 @@ const store = new UnifiedIndexStore({
   chunkYieldMs: 16,
   currentHome: CURRENT_HOME,
   cachePath,
+  // Same default the plugin uses, so the report's cost matches the panel's.
+  pricingPath: join(CURRENT_HOME, 'usage-unified', 'pricing.json'),
   cacheWriteDelayMs: 1000,
 })
 const started = Date.now()
 await store.refresh()
 const snapshot = store.snapshot({ range, scope: 'all' })
-const heatmap = store.snapshot({ range: 'year', scope: 'all' })
 const calls = store.calls({ range, scope: 'all', page: 1, pageSize: 100, maxRecords: 2000 })
 const t = snapshot.totals
 if (snapshot.status.indexed > 0) await store.flush()
@@ -130,40 +131,50 @@ const sparkPts = sparkDays.map((d, i) => {
 }).join(' ')
 const sparkSvg = `<svg class="spark" viewBox="0 0 260 52" preserveAspectRatio="none" aria-hidden="true"><polyline points="${sparkPts}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>`
 
+// T is the selected window and drives every headline card; A stays all-time for
+// the two streaks (a streak is a fact about "now"), the unit table and the
+// reconciliation — which is why those are labelled as all-time.
+const T = snapshot.totals
+const cacheDenom = T.input + T.cacheRead + T.cacheWrite
+const windowLabel = range === 'all' ? '全部时间' : range === '30d' ? '近 30 天' : '近 7 天'
+const windowRange = snapshot.range.from === '' ? '全部时间' : `${snapshot.range.from} → ${snapshot.range.to}`
+
 const cardDefs = [
-  { label: '总 Tokens', value: (A.tokens / 1e8).toFixed(2), unit: '亿', detail: `${nf(A.tokens)} · ${compact(A.tokens)} · 含缓存读`, accent: '#1684ff', hero: true },
-  { label: '会话', value: nf(A.sessions), unit: '个', detail: `另含 ${nf(A.subagentSessions)} 个子会话`, accent: '#9368ef' },
-  { label: '消息', value: compact(A.messages), unit: '', detail: `人工 ${compact(A.humanMessages)} · 助手 ${compact(A.assistantMessages)}`, accent: '#219653' },
-  { label: '工具结果', value: compact(A.toolResults), unit: '', detail: '', accent: '#22b8b5' },
-  { label: '活跃天数', value: nf(A.activeDays), unit: '天', detail: '', accent: '#f59e0b' },
-  { label: '当前连续', value: nf(A.currentStreak), unit: '天', detail: '', accent: '#ef5da8' },
-  { label: '最长连续', value: nf(A.longestStreak), unit: '天', detail: '', accent: '#a479e2' },
-  { label: '高峰时段', value: hour(A.peakHour), unit: '', detail: '', accent: '#2da2bb' },
+  { label: 'Tokens 用量', value: (T.tokens / 1e8).toFixed(2), unit: '亿', detail: `${nf(T.tokens)} · ${compact(T.tokens)} · 含缓存读`, accent: '#1684ff', hero: true },
+  { label: '会话', value: nf(T.sessions), unit: '个', detail: `另含 ${nf(T.subagentSessions)} 个子会话`, accent: '#9368ef' },
+  { label: '消息', value: compact(T.messages), unit: '', detail: `人工 ${compact(T.humanMessages)} · 助手 ${compact(T.assistantMessages)}`, accent: '#219653' },
+  { label: '调用次数', value: compact(snapshot.models.reduce((sum, m) => sum + m.calls, 0)), unit: '', detail: '', accent: '#22b8b5' },
+  { label: '缓存命中率', value: cacheDenom > 0 ? `${(T.cacheRead / cacheDenom * 100).toFixed(1)}` : '—', unit: cacheDenom > 0 ? '%' : '', detail: '', accent: '#2da2bb' },
+  { label: '活跃天数', value: nf(T.activeDays), unit: '天', detail: '', accent: '#f59e0b' },
+  { label: '当前连续 · 全时', value: nf(A.currentStreak), unit: '天', detail: '', accent: '#ef5da8' },
+  { label: '最长连续 · 全时', value: nf(A.longestStreak), unit: '天', detail: '', accent: '#a479e2' },
+  { label: '高峰时段', value: hour(T.peakHour), unit: '', detail: '', accent: '#2da2bb' },
   {
     label: '最常用模型',
-    value: snapshot.allTime.mostUsedModel ? snapshot.allTime.mostUsedModel.model : '—',
+    value: snapshot.mostUsedModel ? snapshot.mostUsedModel.model : '—',
     unit: '',
-    detail: snapshot.allTime.mostUsedModel ? snapshot.allTime.mostUsedModel.provider : '',
+    detail: snapshot.mostUsedModel ? `${snapshot.mostUsedModel.provider} · ${snapshot.mostUsedModel.percent.toFixed(1)}%` : '',
     accent: '#65a9ff',
     small: true,
   },
 ]
+if (snapshot.cost !== null) {
+  const cost = snapshot.cost
+  const covered = cost.pricedTokens + cost.unpricedTokens
+  cardDefs.push({
+    label: '估算成本',
+    value: `$${cost.total.toFixed(2)}`,
+    unit: '',
+    detail: `已定价 ${covered === 0 ? 0 : Math.round(cost.pricedTokens / covered * 100)}% · ${compact(cost.unpricedTokens)} tokens 未定价`
+      + (cost.peakShare === undefined ? '' : ` · 峰值按 ${Math.round(cost.peakShare * 100)}% 折算`),
+    accent: '#f59e0b',
+    small: true,
+  })
+}
 const statCards = cardDefs.map(card => `<div class="stat${card.hero ? ' hero' : ''}${card.small ? ' small' : ''}" style="--accent:${card.accent}"><div class="k"><i class="pin"></i>${esc(card.label)}</div><div class="val">${esc(card.value)}${card.unit ? `<span class="u">${esc(card.unit)}</span>` : ''}</div>${card.detail ? `<div class="d">${esc(card.detail)}</div>` : ''}${card.hero ? sparkSvg : ''}</div>`).join('')
-// The range cards when the range is bounded, so the page never hides them.
-const rangeCards = range === 'all' ? '' : `<div class="stats" style="margin-top:12px">${[
-  { label: '本区间 Tokens', value: cn(t.tokens), detail: nf(t.tokens), accent: '#65a9ff' },
-  { label: '本区间会话', value: nf(t.sessions), detail: '', accent: '#9368ef' },
-  { label: '本区间消息', value: nf(t.messages), detail: '', accent: '#219653' },
-].map(card => `<div class="stat" style="--accent:${card.accent}"><div class="k"><i class="pin"></i>${esc(card.label)}</div><div class="val">${esc(card.value)}</div>${card.detail ? `<div class="d">${esc(card.detail)}</div>` : ''}</div>`).join('')}</div>`
 
 const maxDay = Math.max(1, ...snapshot.days.map(d => d.tokens))
 const dayBars = snapshot.days.map(d => `<i style="height:${(d.tokens / maxDay * 100).toFixed(2)}%" title="${esc(d.date)}: ${nf(d.tokens)} tokens · ${d.calls} calls"></i>`).join('')
-const maxHeat = Math.max(1, ...heatmap.days.map(d => d.tokens))
-const heatCells = heatmap.days.map(d => {
-  const level = d.tokens === 0 ? 0 : Math.max(1, Math.min(5, Math.ceil(Math.log1p(d.tokens) / Math.log1p(maxHeat) * 5)))
-  return `<span class="cell" data-level="${level}" title="${esc(d.date)}: ${nf(d.tokens)} tokens"></span>`
-}).join('')
-
 // Provider rollup — the "command" number is here, not in the per-model rows.
 const byProvider = new Map()
 for (const m of snapshot.models) {
@@ -188,10 +199,30 @@ const unitRows = [
 ].map(([u, v]) => `<tr><td>${esc(u)}</td><td class="num">${esc(v)}</td></tr>`).join('')
 
 const bucketLabel = { input: '输入', cacheRead: '缓存读', cacheWrite: '缓存写', output: '输出' }
-const modelRows = snapshot.models.slice(0, 15).map(m => {
+const MODEL_ROW_LIMIT = 6
+const modelRowOf = m => {
   const segs = ['input', 'cacheRead', 'cacheWrite', 'output'].map(b => m[b] > 0 ? `<span class="seg" data-b="${b}" style="width:${(m[b] / m.tokens * 100).toFixed(2)}%" title="${bucketLabel[b]} ${nf(m[b])}"></span>` : '').join('')
-  return `<div class="mrow"><div class="mhead"><span>${esc(m.model)} · ${esc(m.provider)}</span><span>${cn(m.tokens)} · ${compact(m.tokens)} · ${m.calls} 次 · ${m.percent.toFixed(1)}%</span></div><div class="stack">${segs}</div></div>`
-}).join('')
+  const cost = m.costUsd === undefined ? '' : ` · ≈$${m.costUsd.toFixed(2)}`
+  return `<div class="mrow"><div class="mhead"><span>${esc(m.model)} · ${esc(m.provider)}</span><span>${m.percent.toFixed(1)}% · ${cn(m.tokens)} · ${compact(m.tokens)} · ${m.calls} 次${cost}</span></div><div class="stack">${segs}</div></div>`
+}
+// The same treatment as the plugin: the head of the list, the tail behind a toggle.
+const modelRows = snapshot.models.slice(0, MODEL_ROW_LIMIT).map(modelRowOf).join('')
+  + (snapshot.models.length > MODEL_ROW_LIMIT
+    ? `<details><summary class="more">展开全部 ${snapshot.models.length} 个模型</summary>${snapshot.models.slice(MODEL_ROW_LIMIT).map(modelRowOf).join('')}</details>`
+    : '')
+const SESSION_ROW_LIMIT = 12
+const sessionLabel = row => {
+  if (row.cwd !== undefined) {
+    const leaf = row.cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
+    if (leaf !== undefined && leaf.length > 0) return leaf
+  }
+  return row.sessionId.length > 16 ? `${row.sessionId.slice(0, 16)}…` : row.sessionId
+}
+const sessionRowOf = row => `<tr><td>${esc(sessionLabel(row))}${row.subtask ? ' <span class="muted">sub</span>' : ''}</td><td class="muted">${esc(row.cwd ?? row.sessionId)}</td><td class="num">${new Date(row.startTime ?? row.createdAt).toLocaleDateString()}</td><td class="num">${row.startTime === null || row.endTime === null ? '—' : `${((row.endTime - row.startTime) / 3600000).toFixed(1)}h`}</td><td class="num">${nf(row.tokens)}</td><td class="num">${cn(row.tokens)}</td><td class="num">${nf(row.messages)}</td><td>${esc(row.topModel.slice(row.topModel.indexOf('/') + 1))}${row.modelCount > 1 ? ` <span class="muted">+${row.modelCount - 1}</span>` : ''}</td>${snapshot.cost === null ? '' : `<td class="num">${row.costUsd === undefined ? '—' : `$${row.costUsd.toFixed(2)}`}</td>`}</tr>`
+const sessionRows = snapshot.sessions.length === 0 ? '' : `<table><thead><tr><th>会话</th><th>路径</th><th class="num">开始</th><th class="num">时长</th><th class="num">tokens</th><th class="num">亿</th><th class="num">消息</th><th>主要模型</th>${snapshot.cost === null ? '' : '<th class="num">成本</th>'}</tr></thead><tbody>${snapshot.sessions.slice(0, SESSION_ROW_LIMIT).map(sessionRowOf).join('')}</tbody></table>`
+  + (snapshot.sessions.length > SESSION_ROW_LIMIT
+    ? `<details><summary class="more">展开全部 ${snapshot.sessions.length} 条（共 ${nf(snapshot.sessionTotal)} 个会话）</summary><table><tbody>${snapshot.sessions.slice(SESSION_ROW_LIMIT).map(sessionRowOf).join('')}</tbody></table></details>`
+    : '')
 
 const callRows = calls.items.map(r => `<tr><td class="muted">${esc(new Date(r.time).toLocaleString())}</td><td>${r.subtask ? '<span class="muted">sub </span>' : ''}${esc(r.model)}</td><td class="num">${nf(r.tokens.input)}</td><td class="num">${nf(r.tokens.output)}</td><td class="num">${nf(r.tokens.cacheRead)}</td><td class="num">${r.durationMs == null ? '—' : `${r.durationMs}ms`}</td><td>${esc(r.effort ?? '—')}</td></tr>`).join('')
 
@@ -212,9 +243,9 @@ const html = `<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>dsh-usage-unified · ${range}</title>
 <style>
-  :root{color-scheme:dark;--bg:#0f1115;--panel:#171a20;--panel2:#141822;--line:#262a33;--line2:#23272f;--text:#e8eaed;--muted:#8a9099;--muted2:#c3c8d0;--chip:#12151b;--stack:#2a2e37;--dayA:#368ef2;--dayB:#1068ca;--h0:#242832;--h1:#173b63;--h2:#1d568f;--h3:#2173bd;--h4:#2b91e9;--h5:#67b7ff;--hover:#3b4252;--shadow:rgba(0,0,0,.38)}
-  @media (prefers-color-scheme:light){:root:not([data-theme="dark"]){color-scheme:light;--bg:#f3f5f9;--panel:#ffffff;--panel2:#f7f9fc;--line:#e4e8ef;--line2:#eef1f6;--text:#151a21;--muted:#6b7280;--muted2:#374151;--chip:#f2f5f9;--stack:#e7ecf3;--dayA:#5aa7ff;--dayB:#1068ca;--h0:#e9eef4;--h1:#d6e9ff;--h2:#a9d1ff;--h3:#72b2ff;--h4:#368ef2;--h5:#1068ca;--hover:#c9d2e0;--shadow:rgba(15,23,42,.14)}}
-  :root[data-theme="light"]{color-scheme:light;--bg:#f3f5f9;--panel:#ffffff;--panel2:#f7f9fc;--line:#e4e8ef;--line2:#eef1f6;--text:#151a21;--muted:#6b7280;--muted2:#374151;--chip:#f2f5f9;--stack:#e7ecf3;--dayA:#5aa7ff;--dayB:#1068ca;--h0:#e9eef4;--h1:#d6e9ff;--h2:#a9d1ff;--h3:#72b2ff;--h4:#368ef2;--h5:#1068ca;--hover:#c9d2e0;--shadow:rgba(15,23,42,.14)}
+  :root{color-scheme:dark;--bg:#0f1115;--panel:#171a20;--panel2:#141822;--line:#262a33;--line2:#23272f;--text:#e8eaed;--muted:#8a9099;--muted2:#c3c8d0;--chip:#12151b;--stack:#2a2e37;--dayA:#368ef2;--dayB:#1068ca;--hover:#3b4252;--shadow:rgba(0,0,0,.38)}
+  @media (prefers-color-scheme:light){:root:not([data-theme="dark"]){color-scheme:light;--bg:#f3f5f9;--panel:#ffffff;--panel2:#f7f9fc;--line:#e4e8ef;--line2:#eef1f6;--text:#151a21;--muted:#6b7280;--muted2:#374151;--chip:#f2f5f9;--stack:#e7ecf3;--dayA:#5aa7ff;--dayB:#1068ca;--hover:#c9d2e0;--shadow:rgba(15,23,42,.14)}}
+  :root[data-theme="light"]{color-scheme:light;--bg:#f3f5f9;--panel:#ffffff;--panel2:#f7f9fc;--line:#e4e8ef;--line2:#eef1f6;--text:#151a21;--muted:#6b7280;--muted2:#374151;--chip:#f2f5f9;--stack:#e7ecf3;--dayA:#5aa7ff;--dayB:#1068ca;--hover:#c9d2e0;--shadow:rgba(15,23,42,.14)}
   :root[data-theme="dark"]{color-scheme:dark}
   body{margin:0;font:14px/1.55 -apple-system,'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text)}
   header{padding:16px 22px;background:var(--panel);border-bottom:1px solid var(--line)}
@@ -246,9 +277,17 @@ const html = `<!doctype html>
   section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px}
   .day{display:flex;align-items:flex-end;gap:3px;height:100px}
   .day i{flex:1;background:linear-gradient(var(--dayA),var(--dayB));border-radius:2px 2px 0 0;min-height:2px}
-  .heat{display:grid;grid-template-columns:repeat(53,1fr);grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:3px}
-  .cell{width:100%;aspect-ratio:1;border-radius:2px;background:var(--h0)}
-  .cell[data-level="1"]{background:var(--h1)}.cell[data-level="2"]{background:var(--h2)}.cell[data-level="3"]{background:var(--h3)}.cell[data-level="4"]{background:var(--h4)}.cell[data-level="5"]{background:var(--h5)}
+  details.sec{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;background:var(--panel)}
+  details.sec>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+  details.sec>summary::-webkit-details-marker{display:none}
+  details.sec>summary::before{content:'▾';color:var(--muted);font-size:11px;transition:transform .15s ease}
+  details.sec:not([open])>summary::before{transform:rotate(-90deg)}
+  details.sec>summary h2{display:inline;margin:0}
+  details.sec[open]>summary{margin-bottom:12px}
+  details.sec:not([open])>summary{margin-bottom:0}
+  details:not(.sec)>summary.more{cursor:pointer;color:#1684ff;font-size:12.5px;margin-top:8px}
+  details:not(.sec)[open]>summary.more{margin-bottom:10px}
+  h2 .muted{font-weight:400;font-size:12px;margin-left:6px}
   .legend{display:flex;gap:16px;color:var(--muted);font-size:12px;margin-bottom:10px;flex-wrap:wrap}
   .dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
   .seg[data-b=input]{background:#1684ff}.seg[data-b=cacheRead]{background:#22b8b5}.seg[data-b=cacheWrite]{background:#f59e0b}.seg[data-b=output]{background:#219653}
@@ -267,38 +306,37 @@ const html = `<!doctype html>
   @media(max-width:760px){.cols{grid-template-columns:1fr}}
 </style><script>(function(){try{var m=localStorage.getItem('dsh-usage-theme');if(m==='light'||m==='dark'){document.documentElement.setAttribute('data-theme',m);}}catch(e){}})();</script></head><body>
 <header><div class="hwrap"><div><h1>dsh-usage-unified · 本地静态报告（${range === 'all' ? '全部时间' : range}）</h1>
-<div class="sub">生成于 ${esc(generated)} · home：${esc(CURRENT_HOME)} · 已索引 ${snapshot.status.indexed} 个会话 · 数据区间 ${esc(snapshot.allTime.totals.activeDays)} 个活跃日</div></div>
+<div class="sub">生成于 ${esc(generated)} · home：${esc(CURRENT_HOME)} · 已索引 ${snapshot.status.indexed} 个会话 · <b>统计区间 ${esc(windowLabel)}${snapshot.range.from === '' ? '' : `（${esc(windowRange)}）`}</b> · 全时 ${esc(A.activeDays)} 个活跃日</div></div>
 <div class="themebar" role="group" aria-label="主题"><button type="button" data-th="auto" aria-pressed="true">自动</button><button type="button" data-th="light" aria-pressed="false">浅色</button><button type="button" data-th="dark" aria-pressed="false">深色</button></div>
 </div></header>
 <main>
   <div class="stats">${statCards}</div>
-  ${rangeCards}
-  <div class="recon"><b>完整性对账：</b>${reconciliation}</div>
+  <div class="recon"><b>完整性对账（全时）：</b>${reconciliation}</div>
 
-  <section><h2>总消耗换算（全部时间 · 多单位）</h2>
+  <section><h2>总消耗换算（全时 · 多单位）</h2>
     <table><thead><tr><th>单位</th><th class="num">数值</th></tr></thead><tbody>${unitRows}</tbody></table>
     <div class="note">1 亿 = 100,000,000；1 B = 1,000,000,000（十亿）；1 万 = 10,000。</div></section>
 
   ${hasWrapped ? `<section><h2>Tokscale Wrapped（嵌入你 star 的 <a href="https://github.com/junhoyeo/tokscale" style="color:#65a9ff">junhoyeo/tokscale</a>）</h2>
     <img class="wrapped" src="tokscale-wrapped.png" alt="tokscale wrapped" />
-    <div class="note">由 <code>bun x tokscale@latest wrapped -c dsh --clients</code> 生成 · MIT © junhoyeo/tokscale。数据源为本机 DSH 会话（完整版）；tokscale 原生 DSH 解析只认旧文件名 <code>session.jsonl.zstd</code>，会漏掉 <code>session.v3.*</code>（约 40%），所以本仓库先用 <code>scripts/tokscale-export.mjs</code> 导出成它能读的布局再生成。</div></section>` : ''}
+    <div class="note">由 <code>bun x tokscale@latest wrapped -c dsh --clients</code> 生成 · MIT © junhoyeo/tokscale。数据源为本机 DSH 会话（完整版）；tokscale 原生 DSH 解析只认旧文件名 <code>session.jsonl.zstd</code>，会漏掉 <code>session.v3.*</code>（约 40%）。该缺陷已由 <a href="https://github.com/junhoyeo/tokscale/pull/1328">tokscale#1328</a> 修复并随 <b>v4.17.0</b> 发布，升级到 ≥4.17.0 后 tokscale 能直接读版本化日志，<code>scripts/tokscale-export.mjs</code> 及其 <code>extraScanPaths</code> 条目应一并退休（否则会重复计数）。</div></section>` : ''}
 
   ${tokscaleProfile}
 
-  <section><h2>按 provider 汇总（全部时间）</h2>
+  <section><h2>按 provider 汇总（${esc(windowLabel)}）</h2>
     <table><thead><tr><th>provider</th><th class="num">tokens</th><th class="num">亿</th><th class="num">—</th><th class="num">占比</th><th class="num">调用</th><th class="num">模型数</th></tr></thead>
     <tbody>${providerTable}</tbody></table>
-    <div class="note">同一个 provider 的多个模型在这里合并；上方「模型四桶」按单个模型拆分。command 与 command-vision 是两个 provider。</div></section>
+    <div class="note">同一个 provider 的多个模型在这里合并；上方「模型用量」按单个模型拆分。command 与 command-vision 是两个 provider。</div></section>
 
   <section><h2>按天 Token（${snapshot.days.length} 天${range === 'all' ? '，全部' : ''}）</h2><div class="day">${dayBars}</div>
     <div class="note">${esc(snapshot.days[0]?.date ?? '')} → ${esc(snapshot.days[snapshot.days.length - 1]?.date ?? '')}</div></section>
 
-  <section><h2>活跃热力图（近 53 周）</h2><div class="heat">${heatCells}</div>
-    <div class="note">颜色越深 Token 越多（${heatmap.days.length} 天）。</div></section>
-
-  <section><h2>模型四桶拆分（Top 15）</h2>
+  <details class="sec" open><summary><h2>模型用量<span class="muted">（占比 · 四桶 · 调用 · ${MODEL_ROW_LIMIT} 个起可展开）</span></h2></summary>
     <div class="legend"><span><i class="dot" style="background:#1684ff"></i>输入</span><span><i class="dot" style="background:#22b8b5"></i>缓存读</span><span><i class="dot" style="background:#f59e0b"></i>缓存写</span><span><i class="dot" style="background:#219653"></i>输出</span></div>
-    ${modelRows || '<span class="muted">暂无数据</span>'}</section>
+    ${modelRows || '<span class="muted">暂无数据</span>'}</details>
+
+  <details class="sec" open><summary><h2>会话排行<span class="muted">（按 Token 排序 · 共 ${nf(snapshot.sessionTotal)} 个）</span></h2></summary>
+    ${sessionRows || '<span class="muted">暂无数据</span>'}</details>
 
   <section><h2>调用明细（最多 100 条 / 共 ${nf(calls.total)}）</h2>
     ${calls.items.length ? `<table><thead><tr><th>时间</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">缓存读</th><th class="num">耗时</th><th>思考</th></tr></thead><tbody>${callRows}</tbody></table>` : '<span class="muted">暂无调用</span>'}</section>
