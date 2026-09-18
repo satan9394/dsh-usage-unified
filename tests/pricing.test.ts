@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPricing, costOf, lookupPrice, modelNameOf, normalizeModelId, parsePricing, type PricingTable } from '../src/pricing.ts'
+import { applyPricing, costOf, lookupPrice, normalizeModelId, parsePricing, type PricingTable } from '../src/pricing.ts'
 import type { ModelStats, SessionStats } from '../src/types.ts'
 
 const table: PricingTable = {
@@ -24,10 +24,11 @@ describe('pricing lookup', () => {
     expect(lookupPrice(table, 'DEEPSEEK-CHAT')?.output).toBe(0.42)
   })
 
-  it('takes the model half of an attribution key', () => {
-    expect(modelNameOf('deepseek/deepseek-chat')).toBe('deepseek-chat')
-    expect(modelNameOf('deepseek-chat')).toBe('deepseek-chat')
-    expect(costOf(table, modelNameOf('deepseek/deepseek-chat-v3-0324'), buckets(1_000_000, 0))).toBeCloseTo(0.28, 10)
+  it('accepts a provider/model attribution key, including a nested model name', () => {
+    expect(costOf(table, 'deepseek/deepseek-chat', buckets(1_000_000, 0))).toBeCloseTo(0.28, 10)
+    expect(costOf(table, 'deepseek/deepseek-chat-v3-0324', buckets(1_000_000, 0))).toBeCloseTo(0.28, 10)
+    // This machine routes models whose own name contains a slash.
+    expect(costOf(table, 'command/deepseek/deepseek-chat', buckets(1_000_000, 0))).toBeCloseTo(0.28, 10)
   })
 
   it('treats an all-zero price as unknown rather than free', () => {
@@ -106,38 +107,42 @@ function sessionRow(overrides: Partial<SessionStats>): SessionStats {
 }
 
 describe('pricing coverage', () => {
-  it('prices model and session rows and reports what it could not price', () => {
-    const known = modelRow({ tokens: 2_000_000, input: 1_000_000, output: 1_000_000 })
+  it('prices the per-model basis and reports what it could not price', () => {
+    const known = modelRow({ key: 'deepseek/deepseek-chat', tokens: 2_000_000, input: 1_000_000, output: 1_000_000 })
     const unknown = modelRow({ key: 'acme/mystery', model: 'mystery', tokens: 500_000, input: 500_000 })
     const session = sessionRow({ tokens: 2_000_000, input: 1_000_000, output: 1_000_000 })
-    const summary = applyPricing([
-      { row: known, modelId: known.model },
-      { row: unknown, modelId: unknown.model },
-      { row: session, modelId: modelNameOf(session.topModel) },
-    ], table)
-    // The model row and the session row share the same rate, hence twice 0.70.
-    expect(summary?.total).toBeCloseTo(2 * (0.28 + 0.42), 10)
-    expect(summary?.pricedTokens).toBe(4_000_000)
+    const summary = applyPricing({
+      basis: [
+        { row: known, modelId: known.key },
+        { row: unknown, modelId: unknown.key },
+      ],
+      extra: [{ row: session, modelId: session.topModel }],
+    }, table)
+    expect(summary?.total).toBeCloseTo(0.28 + 0.42, 10)
+    expect(summary?.pricedTokens).toBe(2_000_000)
     expect(summary?.unpricedTokens).toBe(500_000)
     expect(known.priced).toBe(true)
     expect(known.costUsd).toBeCloseTo(0.7, 10)
     expect(unknown.priced).toBe(false)
     expect(unknown.costUsd).toBeUndefined()
+    // The session row is decorated for display only and excluded from the summary.
+    expect(session.costUsd).toBeCloseTo(0.7, 10)
+    expect(summary?.total).toBeLessThan(1.4)
   })
 
   it('counts a row once even when it is passed twice', () => {
     const row = modelRow({ tokens: 1_000_000, input: 1_000_000 })
-    const summary = applyPricing([
-      { row, modelId: row.model },
-      { row, modelId: row.model },
-    ], table)
+    const summary = applyPricing({
+      basis: [{ row, modelId: row.key }, { row, modelId: row.key }],
+      extra: [{ row, modelId: row.key }],
+    }, table)
     expect(summary?.total).toBeCloseTo(0.28, 10)
     expect(summary?.pricedTokens).toBe(1_000_000)
   })
 
   it('returns null without a table, leaving rows untouched', () => {
     const row = modelRow({ tokens: 1_000_000, input: 1_000_000 })
-    expect(applyPricing([{ row, modelId: row.model }], null)).toBeNull()
+    expect(applyPricing({ basis: [{ row, modelId: row.key }] }, null)).toBeNull()
     expect(row.costUsd).toBeUndefined()
     expect(row.priced).toBeUndefined()
   })

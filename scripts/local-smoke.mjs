@@ -139,7 +139,19 @@ await check('session ranking + drill-down', async () => {
   if (page.items.length === 0) throw new Error('drill-down returned no calls')
   const foreign = page.items.find(item => item.sessionId.replace(/^session-/, '') !== top.sessionId.replace(/^session-/, ''))
   if (foreign !== undefined) throw new Error(`drill-down leaked session ${foreign.sessionId}`)
-  const cost = snapshot.cost === null ? 'no pricing table' : `cost ≈$${snapshot.cost.total.toFixed(2)} (${snapshot.cost.source})`
+  let cost = 'no pricing table'
+  if (snapshot.cost !== null) {
+    // The summary must be summed over exactly one partition of the window's
+    // tokens; the old shape added session rows on top and doubled the estimate.
+    const covered = snapshot.cost.pricedTokens + snapshot.cost.unpricedTokens
+    if (covered !== snapshot.totals.tokens) {
+      throw new Error(`cost coverage ${covered} != window tokens ${snapshot.totals.tokens}`)
+    }
+    const tokens = snapshot.models.reduce((sum, model) => sum + model.tokens, 0)
+    if (tokens !== snapshot.totals.tokens) throw new Error(`model rows ${tokens} != totals ${snapshot.totals.tokens}`)
+    const priced = snapshot.models.filter(model => model.priced === true).length
+    cost = `cost ≈$${snapshot.cost.total.toFixed(2)} (${priced}/${snapshot.models.length} models priced, from ${snapshot.cost.source})`
+  }
   return `${sessions.length}/${snapshot.sessionTotal} ranked, top=${top.tokens} tokens, ${cost}`
 })
 await check('GET /export.csv', async () => {

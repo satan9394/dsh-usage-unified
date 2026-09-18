@@ -35,7 +35,7 @@ import {
 } from './aggregate.ts'
 import { discoverDshHomes } from './homes.ts'
 import { readArtifact, walkSessionArtifacts, type SessionArtifact } from './reader.ts'
-import { applyPricing, loadPricing, modelNameOf, type PricingTable } from './pricing.ts'
+import { applyPricing, loadPricing, type PricingTable } from './pricing.ts'
 import type {
   CallsPage,
   CostSummary,
@@ -291,13 +291,16 @@ export class UnifiedIndexStore {
     sessions: Snapshot['sessions'],
     extras: readonly (Snapshot['models'][number] | null)[],
   ): CostSummary | null {
-    const targets = [
-      ...models.map(row => ({ row, modelId: row.model })),
-      // A session's dominant model is an attribution key, so price the model half.
-      ...sessions.map(row => ({ row, modelId: modelNameOf(row.topModel) })),
-      ...extras.flatMap(row => row === null ? [] : [{ row, modelId: modelNameOf(row.model) }]),
-    ]
-    return applyPricing(targets, this.pricing)
+    // The per-model rows are the only set that partitions the window's tokens,
+    // so they alone feed the summary; sessions and the most-used-model card
+    // just get a per-row number.
+    return applyPricing({
+      basis: models.map(row => ({ row, modelId: row.key })),
+      extra: [
+        ...sessions.map(row => ({ row, modelId: row.topModel })),
+        ...extras.flatMap(row => row === null ? [] : [{ row, modelId: row.key }]),
+      ],
+    }, this.pricing)
   }
 
   /**
