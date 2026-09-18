@@ -215,8 +215,8 @@ interface RangeInfo {
   timeZone: string;
   id: RangeId;
 }
-/** Requested window: a bounded strip, a year for the heatmap, or all-time. */
-type RangeId = 'all' | 'year' | '30d' | '7d';
+/** Requested window: a bounded strip or all-time. */
+type RangeId = 'all' | '30d' | '7d';
 /** Task scope filter (upstream `dsh-usage-stats`). */
 type TaskScope = 'all' | 'main' | 'subtasks';
 /** Everything the dashboard renders. Produced by the host, consumed by the browser. */

@@ -13,13 +13,17 @@ function harness() {
     },
   }
   const callsSeen: Record<string, unknown>[] = []
+  const snapshotsSeen: Record<string, unknown>[] = []
   const store = {
     refresh: async () => {},
-    snapshot: () => ({ version: 1, generatedAt: 1, tz: 'UTC', range: { from: '', to: '', timeZone: 'UTC', id: 'all' }, status: { phase: 'ready', indexed: 1, total: 1, durable: true, updatedAt: 1 }, totals: {}, allTime: {}, mostUsedModel: null, days: [], hours: [], models: [], workspaces: [], sessions: [], sessionTotal: 0, cost: null, homes: [], coverage: {} }),
+    snapshot: (query: Record<string, unknown>) => {
+      snapshotsSeen.push(query)
+      return { version: 1, generatedAt: 1, tz: 'UTC', range: { from: '', to: '', timeZone: 'UTC', id: query['range'] }, status: { phase: 'ready', indexed: 1, total: 1, durable: true, updatedAt: 1 }, totals: {}, allTime: {}, mostUsedModel: null, days: [], hours: [], models: [], workspaces: [], sessions: [], sessionTotal: 0, cost: null, homes: [], coverage: {} }
+    },
     calls: (query: Record<string, unknown>) => { callsSeen.push(query); return { indexReady: true, items: [], page: 1, pageSize: 50, total: 0, hasMore: false } },
   } as unknown as UnifiedIndexStore
   const dispose = registerRoutes(webServer, store, API)
-  return { handler: handler!, dispose, callsSeen }
+  return { handler: handler!, dispose, callsSeen, snapshotsSeen }
 }
 
 function request(method: string, url: string, remoteAddress = '127.0.0.1'): unknown {
@@ -96,6 +100,16 @@ describe('transport routes', () => {
     const long = response()
     await handler(request('GET', `${API}/calls?session=${'x'.repeat(300)}`), long)
     expect(long.state.status).toBe(400)
+  })
+
+  it('degrades the retired `year` range to all-time instead of failing', async () => {
+    const { handler, snapshotsSeen } = harness()
+    const res = response()
+    await handler(request('GET', `${API}/snapshot?range=year`), res)
+    // A cached client bundle may still ask for it; a 400 would break the panel.
+    expect(res.state.status).toBe(200)
+    expect(snapshotsSeen[0]?.['range']).toBe('all')
+    expect(JSON.parse(res.state.body).range.id).toBe('all')
   })
 
   it('sends no body for HEAD', async () => {

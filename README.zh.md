@@ -131,6 +131,7 @@ npm run report:30d        # 同上，近 30 天
 ## 兼容性
 
 - 面向 `dsh` 0.1.5-rc.1 插件 API（`peerDependencies`），并同时读取旧/新两种日志布局，不局限于某一代 harness。
+- `package.json` 的 `dsh.compatibility` **只声明实际验证过的版本**：目前是 `>=0.1.5-rc.2 <0.1.6` 与 `dshReleases["0.1.5-rc.2"] = "compatible"`。不写 `^` 是因为那会顺带声称 rc.3+ 也兼容，而它们没被验证过；后续稳定 rc 发布后再补声明（DSH STORE 的版本窗口会用「官方最新三版」，旧的精确声明滑出窗口时条目会转为 `unlisted` 而非被拒）。
 - 浏览器半侧对注入的运行时缝隙自带最小结构类型（`src/client/runtime.d.ts`），不 import `@deepseek-ai/dsh-client-runtime`（其公开发布线已与 harness 实际提供的偏离）。`@deepseek-ai/*` 客户端模块仍是 `peerDependencies`，由 harness 在加载时提供。
 
 ## 跨 Agent 排行榜（可选，opt-in）
