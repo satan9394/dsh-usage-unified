@@ -78,6 +78,17 @@ dsh plugin --profile web add E:\path\to\dsh-usage-unified
 > 自己的回环路由。商城保留了上面这条**手动安装入口**，而 [docs/SECURITY.md](./docs/SECURITY.md)
 > 逐条写明了运行时对这些能力的使用方式。插件的行为与本文描述一致，没有额外动作。
 
+### 更新
+
+运行时（`lib/`）是在 harness 启动时加载的，所以**新构建必须重启 Web profile 才生效**。
+
+- **从检出或 `link:` 安装**——在该目录 `git pull`，源码变了就重新构建（`npm run build`），然后重启。
+  `link:` 依赖是**目录联接**，没有副本需要刷新：profile 直接读这个检出目录。
+- **从 GitHub 或 npm 安装**——再执行一次 `dsh plugin --profile web add <同一个目标>`。那种安装会**钉住
+  某个 commit**，重新 add 才是移动它的方式。
+
+无论哪种，**只有运行时变更需要重启**；文档与 `scripts/` 的改动不需要。
+
 ## 使用
 
 打开侧边栏底部入口（或 设置 → 使用统计）。选一个区间——区间控件下方的说明行与趋势图标题栏都会写明
