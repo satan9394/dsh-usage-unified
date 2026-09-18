@@ -4,6 +4,13 @@ Notable changes per release, newest first. The same text is on each
 [release](https://github.com/satan9394/dsh-usage-unified/releases); this file is the
 one place to read them in order.
 
+## 0.4.2 — 2026-09-18
+
+- Both READMEs gained an **Updating** subsection. The runtime is loaded when the harness starts, so
+  a new build needs a restart — and what "update" means depends on the install: a `link:`
+  dependency is a directory junction over the checkout (there is nothing to refresh), while a
+  GitHub or npm install is pinned to a commit and moves only when re-added.
+
 ## 0.4.1 — 2026-09-18
 
 - Documentation rewritten to a conventional shape in both languages: a table of contents, a
