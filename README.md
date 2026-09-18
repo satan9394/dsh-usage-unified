@@ -109,6 +109,12 @@ Key design decisions (full rationale in [PLAN.md](./PLAN.md)):
   cards are tagged "all-time" rather than silently ignoring the filter. Both the
   range control's caption and the trend panel's subtitle spell out the exact
   window.
+- **Days are bucketed in the host process's timezone**, not the browser's and not
+  UTC. The fold writes `YYYY-MM-DD` keys while it indexes, so the zone is fixed
+  when the index is built (`Intl.DateTimeFormat().resolvedOptions().timeZone` of
+  the DSH process) and a change to it forces a full rebuild. On a machine whose
+  system timezone differs from the user's, "today" therefore means today *in that
+  zone* — set `TZ` for the DSH process if you want it to follow a specific one.
 - **File-backed cache.** The index persists to `$DSH_HOME/usage-unified/index-v1.json`
   atomically, rather than depending on `ctx.storageDomain`, so the panel always
   loads.
