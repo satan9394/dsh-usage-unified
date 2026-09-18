@@ -228,8 +228,8 @@ export interface RangeInfo {
   id: RangeId
 }
 
-/** Requested window: a bounded strip, a year for the heatmap, or all-time. */
-export type RangeId = 'all' | 'year' | '30d' | '7d'
+/** Requested window: a bounded strip or all-time. */
+export type RangeId = 'all' | '30d' | '7d'
 
 /** Task scope filter (upstream `dsh-usage-stats`). */
 export type TaskScope = 'all' | 'main' | 'subtasks'

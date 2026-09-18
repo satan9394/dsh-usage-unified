@@ -45,7 +45,7 @@ export function sessionKey(id: string): string {
 }
 
 /** How many days each bounded range covers, today included. */
-const RANGE_DAYS: Record<Exclude<RangeId, 'all'>, number> = { year: 365, '30d': 30, '7d': 7 }
+const RANGE_DAYS: Record<Exclude<RangeId, 'all'>, number> = { '30d': 30, '7d': 7 }
 
 /** Today-inclusive day bounds for a bounded range. */
 export function rangeBounds(range: Exclude<RangeId, 'all'>, today: string): { from: string; to: string } {
