@@ -123,8 +123,10 @@ export function registerRoutes(
           const common = parseCommon(url)
           const model = url.searchParams.get('model') ?? undefined
           const provider = url.searchParams.get('provider') ?? undefined
+          const session = url.searchParams.get('session') ?? undefined
           if (model !== undefined && model.length > 4096) throw new Error('Invalid model filter')
           if (provider !== undefined && provider.length > 4096) throw new Error('Invalid provider filter')
+          if (session !== undefined && (session.length === 0 || session.length > 256)) throw new Error('Invalid session filter')
           const threshold = (name: string): number | undefined => {
             const raw = url.searchParams.get(name)
             if (raw === null || raw === '') return undefined
@@ -141,6 +143,7 @@ export function registerRoutes(
             maxRecords: parseInteger(url, 'maxRecords', 1, 10_000, 1_000),
             ...(model === undefined ? {} : { model }),
             ...(provider === undefined ? {} : { provider }),
+            ...(session === undefined ? {} : { session }),
             ...(minInputTokens === undefined ? {} : { minInputTokens }),
             ...(minOutputTokens === undefined ? {} : { minOutputTokens }),
           })

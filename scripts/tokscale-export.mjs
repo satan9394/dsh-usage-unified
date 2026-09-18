@@ -1,10 +1,23 @@
 /**
- * Export this machine's DSH sessions into a DSH-home layout that tokscale can
- * read completely.
+ * DEPRECATED — tokscale v4.17.0 reads versioned DSH logs natively.
  *
- * tokscale's dsh parser looks for `session.jsonl[.zstd]`, but current DSH
- * writes `session.v3.jsonl.zstd`, so tokscale silently misses every v3 session
- * (about 40% of the tokens here). This writes a converted copy of every session
+ * The upstream bug this worked around was fixed by junhoyeo/tokscale#1328,
+ * which shipped in v4.17.0 (2026-09-15). Keeping this exporter AND the
+ * `scanner.extraScanPaths.dsh` entry it feeds now DOUBLE-COUNTS those sessions
+ * (tokscale does not dedupe an extra root against its own default scan), so the
+ * pair must be retired together once `tokscale --version` reports >= 4.17.0:
+ *
+ *   1. `tokscale upgrade` (or reinstall the binary)
+ *   2. remove the `dsh` entry from `%APPDATA%\tokscale\settings.json`
+ *   3. delete `.tokscale-home/` and this script, and drop its step from
+ *      `refresh-and-submit.ps1`
+ *   4. re-submit and confirm the total did not drop
+ *
+ * Original purpose, kept for the migration window:
+ *
+ * tokscale's dsh parser used to look for `session.jsonl[.zstd]`, but current
+ * DSH writes `session.v3.jsonl.zstd`, so it silently missed every v3 session
+ * (about 40% of the tokens here). This wrote a converted copy of every session
  * — one `session.jsonl` per session, header + sequenced events, heavy content
  * fields stripped — under `.tokscale-home/sessions/..., so:
  *

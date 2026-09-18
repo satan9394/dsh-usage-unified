@@ -54,6 +54,14 @@ export interface Config {
   apiPath: string
   /** Optional index cache path; defaults below `DSH_HOME`. */
   cachePath?: string
+  /**
+   * Optional pricing table used for the cost estimate. Defaults to
+   * `$DSH_HOME/usage-unified/pricing.json`; when the file is missing, no cost
+   * is shown rather than a guessed one.
+   */
+  pricingPath?: string
+  /** Sessions decoded in parallel during a scan. */
+  indexConcurrency: number
   /** Debounce delay for index writes, in ms. */
   cacheWriteDelayMs: number
 }
@@ -65,6 +73,8 @@ export const Config: Schema<Config> = Schema.object({
   indexChunkYieldMs: Schema.number().min(1).max(1000).default(16),
   apiPath: Schema.string().default(DEFAULT_API_PATH),
   cachePath: Schema.string().description('Optional index path; defaults below DSH_HOME.'),
+  pricingPath: Schema.string().description('Optional pricing table; defaults below DSH_HOME.'),
+  indexConcurrency: Schema.number().min(1).max(16).default(4),
   cacheWriteDelayMs: Schema.number().min(250).max(30_000).default(1000),
 })
 
@@ -81,6 +91,8 @@ export function apply(ctx: Context, config: Config): void {
     chunkYieldMs: config.indexChunkYieldMs,
     currentHome: resolveDshHome(),
     cachePath: config.cachePath ?? dshHomePath('usage-unified', 'index-v1.json'),
+    pricingPath: config.pricingPath ?? dshHomePath('usage-unified', 'pricing.json'),
+    concurrency: config.indexConcurrency,
     cacheWriteDelayMs: config.cacheWriteDelayMs,
   })
   ctx.effect(() => () => { store.dispose() }, 'usageUnified.index')

@@ -112,6 +112,36 @@ describe('aggregate — snapshot', () => {
     const result = aggregateSnapshot(folds, { from: '', to: TODAY, timeZone: TZ, range: 'all', scope: 'all', now: NOW })
     expect(result.days.map(day => day.date)).toEqual([isoDay(-1), TODAY])
   })
+
+  it('ranks sessions by tokens and keeps the dominant model', () => {
+    const bounds = rangeBounds('7d', TODAY)
+    const result = aggregateSnapshot(folds, { ...bounds, timeZone: TZ, range: '7d', scope: 'all', now: NOW })
+    // main spent 110 + 220, other 55, sub 33.
+    expect(result.sessions.map(row => row.sessionId)).toEqual(['main', 'other', 'sub'])
+    expect(result.sessionTotal).toBe(3)
+    expect(result.sessions[0]?.tokens).toBe(330)
+    expect(result.sessions[0]?.topModel).toBe('deepseek/deepseek-chat')
+    expect(result.sessions[0]?.topModelProvider).toBe('deepseek')
+    expect(result.sessions[0]?.cwd).toBe('D:\\work')
+    expect(result.sessions[2]?.subtask).toBe(true)
+  })
+
+  it('drops sessions with no activity inside the window', () => {
+    const folds = [buildFold({ id: 'old', calls: [[-40, 900, 90]] }), buildFold({ id: 'new', calls: [[0, 10, 1]] })]
+    const bounds = rangeBounds('7d', TODAY)
+    const result = aggregateSnapshot(folds, { ...bounds, timeZone: TZ, range: '7d', scope: 'all', now: NOW })
+    expect(result.sessions.map(row => row.sessionId)).toEqual(['new'])
+    // The all-time ranking still sees both.
+    const all = aggregateSnapshot(folds, { from: '', to: TODAY, timeZone: TZ, range: 'all', scope: 'all', now: NOW })
+    expect(all.sessions.map(row => row.sessionId)).toEqual(['old', 'new'])
+    expect(all.sessions[0]?.tokens).toBe(990)
+  })
+
+  it('scopes the session ranking with the task scope', () => {
+    const bounds = rangeBounds('7d', TODAY)
+    const result = aggregateSnapshot(folds, { ...bounds, timeZone: TZ, range: '7d', scope: 'main', now: NOW })
+    expect(result.sessions.map(row => row.sessionId)).toEqual(['main', 'other'])
+  })
 })
 
 describe('aggregate — calls', () => {
@@ -137,6 +167,16 @@ describe('aggregate — calls', () => {
     expect(collectCalls([fold], { ...base, provider: 'deepseek' })).toHaveLength(1)
     expect(collectCalls([fold], { ...base, minInputTokens: 500 })).toHaveLength(0)
     expect(collectCalls([fold], { ...base, minOutputTokens: 5 })).toHaveLength(1)
+  })
+
+  it('narrows to one session, tolerating the v3 id prefix', () => {
+    const main = buildFold({ id: 'main', calls: [[0, 100, 10]] })
+    const other = buildFold({ id: 'other', calls: [[0, 50, 5]] })
+    const bounds = rangeBounds('7d', TODAY)
+    const base = { ...bounds, timeZone: TZ, range: '7d' as const, scope: 'all' as const, now: NOW, maxRecords: 100 }
+    expect(collectCalls([main, other], { ...base, session: 'main' }).map(row => row.sessionId)).toEqual(['main'])
+    expect(collectCalls([main, other], { ...base, session: 'session-main' }).map(row => row.sessionId)).toEqual(['main'])
+    expect(collectCalls([main, other], { ...base, session: 'nope' })).toHaveLength(0)
   })
 
   it('caps the row count at maxRecords', () => {

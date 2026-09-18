@@ -74,17 +74,48 @@ by the harness.
 
 ## Verification strategy
 
-- **Unit** (45 tests): zstd frame scanning, both log decoders (incl. packed
-  records, torn tails, foreign versions, resume), home discovery, the fold
-  (replace/retry/seed/compaction/calls/timing/effort), aggregation (ranges,
-  gap-fill, scope/workspace filters, streaks, peak hour, call pagination), i18n
-  parity, and every transport route.
+- **Unit** (62 tests): zstd frame scanning, both log decoders (incl. packed
+  records, torn tails, foreign versions, resume, and a tail-only on-disk read),
+  home discovery, the fold (replace/retry/seed/compaction/calls/timing/effort),
+  aggregation (ranges, gap-fill, scope/workspace filters, streaks, peak hour,
+  call pagination, session ranking, session filter), pricing (lookup,
+  normalization, both file shapes, coverage), i18n parity, and every transport
+  route including the session filter's bounds.
 - **Real data** (`npm run verify:realdata`): read-only over this machine's
   ~1,200 real sessions in both formats; the folded totals are checked against an
   independently coded per-step usage reconstruction (**exact match, 0 tokens
   delta**), plus a full store scan + persistence round-trip.
 - **Build**: `tsdown` emits `lib/index.js` (ESM, `@deepseek-ai/*` external) and
   `lib/client.js` (CJS wrapped in `window.__ModuleLoader__.load`).
+
+## Follow-up pass (v0.2.0)
+
+After living with the merge, the review surfaced four things worth changing:
+
+1. **Two model panels became one.** Each upstream shipped its own model panel —
+   share-only vs split-only — and the merge kept both, so the model list
+   appeared twice under two headings. They are now one collapsible panel whose
+   rows carry the share, the stacked four-bucket bar and the call count, with
+   the long tail behind a "show all" toggle.
+2. **Collapsible panels.** Every large panel (trend, models, breakdown, session
+   ranking, call details) now collapses from its header, with the flag kept in a
+   module store so it survives the overlay unmounting and so the session
+   drill-down can force the call table open.
+3. **Session ranking + drill-down.** `aggregate.ts` gained `sessionRowsFor`,
+   reusing the fold's per-session counters; the drill-down reuses the existing
+   `/calls` route with a `session` filter rather than a second detail view that
+   could disagree with the first.
+4. **Optional cost.** `pricing.ts` reads a local pricing table; `priced`
+   coverage is tracked so an unmatched model is reported as unpriced rather than
+   free. `scripts/setup-pricing.mjs` generates the table from CC Switch.
+   Also removed dead heatmap/bar-chart CSS and the now-unused dictionary keys.
+
+Performance work in the same pass: the scan now decodes with bounded
+concurrency (default 4 — measured: 2–4 lanes is the sweet spot, 8+ regresses),
+a resume reads only the appended tail instead of the whole log, and the index is
+persisted only when it actually changed (it used to rewrite ~20 MB every refresh
+interval). Async `zlib.zstdDecompress` was measured and rejected: per-frame
+`await` overhead made it ~2× **slower** than the synchronous path.
 
 ## Known trade-offs (inherited, disclosed in the UI)
 

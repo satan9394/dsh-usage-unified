@@ -25,7 +25,7 @@
  * @module dsh-usage-unified/reader
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { zstdDecompressSync } from 'node:zlib'
 import type { EventLike, HeaderLike } from './fold.ts'
@@ -245,7 +245,21 @@ export async function readArtifact(
   fromCursor: number,
   cachedHeader?: HeaderLike,
 ): Promise<ArtifactRead> {
-  const bytes = await readFile(path)
-  const slice = fromCursor > 0 ? bytes.subarray(fromCursor) : bytes
-  return decodeArtifactBytes(slice, path.endsWith('.zstd'), fromCursor, cachedHeader)
+  // A resume reads only the appended tail. The active session is also the
+  // largest, and the refresh loop touches it every few seconds, so reading a
+  // whole multi-megabyte log to consume two frames is the difference between a
+  // cheap poll and a disk-bound one.
+  if (fromCursor > 0) {
+    const handle = await open(path, 'r')
+    try {
+      const info = await handle.stat()
+      const length = Math.max(0, info.size - fromCursor)
+      const tail = Buffer.allocUnsafe(length)
+      if (length > 0) await handle.read(tail, 0, length, fromCursor)
+      return decodeArtifactBytes(tail, path.endsWith('.zstd'), fromCursor, cachedHeader)
+    } finally {
+      await handle.close()
+    }
+  }
+  return decodeArtifactBytes(await readFile(path), path.endsWith('.zstd'), 0, cachedHeader)
 }

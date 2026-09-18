@@ -33,10 +33,12 @@ import {
   type CallsQuery,
   type SnapshotQuery,
 } from './aggregate.ts'
-import { discoverDshHomes, type DshHome } from './homes.ts'
-import { readArtifact, walkSessionArtifacts } from './reader.ts'
+import { discoverDshHomes } from './homes.ts'
+import { readArtifact, walkSessionArtifacts, type SessionArtifact } from './reader.ts'
+import { applyPricing, loadPricing, modelNameOf, type PricingTable } from './pricing.ts'
 import type {
   CallsPage,
+  CostSummary,
   Coverage,
   HomeInfo,
   IndexStatus,
@@ -87,8 +89,12 @@ export interface IndexStoreOptions {
   currentHome: string
   /** Absolute index cache path; defaults to `$DSH_HOME/usage-unified/index-v1.json`. */
   cachePath: string
+  /** Optional pricing file; when absent or unreadable, no cost estimate is shown. */
+  pricingPath?: string
   /** Debounce delay before writing the index, in ms. */
   cacheWriteDelayMs: number
+  /** Artifacts decoded concurrently during a scan. */
+  concurrency?: number
   /** OS home directory the discovery heuristic hangs off; injectable for tests. */
   osHome?: string
   /** Injectable clock; tests pin it. */
@@ -136,6 +142,7 @@ export interface StoreQuery {
 export interface StoreCallsQuery extends StoreQuery {
   model?: string
   provider?: string
+  session?: string
   minInputTokens?: number
   minOutputTokens?: number
   page: number
@@ -158,9 +165,11 @@ export class UnifiedIndexStore {
   private running: Promise<void> | undefined
   private loading: Promise<void> | undefined
   private writeTimer: ReturnType<typeof setTimeout> | undefined
+  private dirty = false
   private disposed = false
   private homeInfos: HomeInfo[] = []
   private skippedArtifacts = 0
+  private pricing: PricingTable | null = null
   private state: IndexStatus
 
   constructor(options: IndexStoreOptions) {
@@ -251,6 +260,10 @@ export class UnifiedIndexStore {
     }
     const result = aggregateSnapshot([...this.entries.values()].map(entry => entry.fold), snapshotQuery)
     const coverage: Coverage = { ...result.coverage, skippedArtifacts: this.skippedArtifacts }
+    const cost = this.priceResult(result.models, result.sessions, [
+      result.mostUsedModel,
+      result.allTime.mostUsedModel,
+    ])
     return {
       version: 1,
       generatedAt: now,
@@ -264,9 +277,27 @@ export class UnifiedIndexStore {
       hours: result.hours,
       models: result.models,
       workspaces: result.workspaces,
+      sessions: result.sessions,
+      sessionTotal: result.sessionTotal,
+      cost,
       homes: this.homeInfos,
       coverage,
     }
+  }
+
+  /** Decorate the model/session rows in place and summarize coverage. */
+  private priceResult(
+    models: Snapshot['models'],
+    sessions: Snapshot['sessions'],
+    extras: readonly (Snapshot['models'][number] | null)[],
+  ): CostSummary | null {
+    const targets = [
+      ...models.map(row => ({ row, modelId: row.model })),
+      // A session's dominant model is an attribution key, so price the model half.
+      ...sessions.map(row => ({ row, modelId: modelNameOf(row.topModel) })),
+      ...extras.flatMap(row => row === null ? [] : [{ row, modelId: modelNameOf(row.model) }]),
+    ]
+    return applyPricing(targets, this.pricing)
   }
 
   /**
@@ -290,6 +321,7 @@ export class UnifiedIndexStore {
       ...(query.workspace === undefined ? {} : { workspace: query.workspace }),
       ...(query.model === undefined ? {} : { model: query.model }),
       ...(query.provider === undefined ? {} : { provider: query.provider }),
+      ...(query.session === undefined ? {} : { session: query.session }),
       ...(query.minInputTokens === undefined ? {} : { minInputTokens: query.minInputTokens }),
       ...(query.minOutputTokens === undefined ? {} : { minOutputTokens: query.minOutputTokens }),
     }
@@ -319,9 +351,7 @@ export class UnifiedIndexStore {
     const firstBuild = this.state.phase !== 'ready'
     if (firstBuild) this.state = { ...this.state, phase: 'building', indexed: 0, total: 0 }
     this.skippedArtifacts = 0
-    const touched = new Set<string>()
     const seen = new Set<string>()
-    let lastYield = this.now()
     let discovered = 0
     let processed = 0
     const publishProgress = (): void => {
@@ -329,6 +359,8 @@ export class UnifiedIndexStore {
     }
 
     try {
+      this.pricing = this.options.pricingPath === undefined ? null : await loadPricing(this.options.pricingPath)
+
       const discovery = await discoverDshHomes({
         currentHome: this.options.currentHome,
         extraRoots: this.options.extraSessionRoots,
@@ -341,6 +373,10 @@ export class UnifiedIndexStore {
       this.homeInfos = infos
       const infoByRoot = new Map(discovery.homes.map((home, index) => [home.sessionsRoot, infos[index]] as const))
 
+      // Discovery is a stat-only walk, so it is collected first: the decode
+      // pass can then run with bounded parallelism instead of stalling every
+      // other session behind the one largest log.
+      const pending: SessionArtifact[] = []
       for (const home of discovery.homes) {
         for await (const artifact of walkSessionArtifacts(home)) {
           if (this.disposed) return
@@ -348,41 +384,22 @@ export class UnifiedIndexStore {
           const info = infoByRoot.get(home.sessionsRoot)
           if (info !== undefined) info.sessions += 1
           discovered += 1
-          publishProgress()
+          pending.push(artifact)
+        }
+      }
+      publishProgress()
 
-          const previous = this.entries.get(artifact.key)
-          const unchanged = previous !== undefined
-            && previous.size === artifact.size
-            && previous.mtimeMs === artifact.mtimeMs
-            && previous.ino === artifact.ino
-            && previous.dev === artifact.dev
-          if (unchanged) {
-            processed += 1
-            publishProgress()
-            continue
-          }
-
-          // An inode swap, a shrink, or a backwards clock all mean the bytes
-          // we already consumed are no longer the bytes on disk.
-          const resumable = previous !== undefined
-            && previous.ino === artifact.ino
-            && previous.dev === artifact.dev
-            && artifact.size >= previous.cursor
-            && artifact.mtimeMs >= previous.mtimeMs
-          const updated = await this.foldArtifact(artifact, resumable ? previous : undefined)
-          if (updated === undefined) {
-            this.skippedArtifacts += 1
-            if (previous !== undefined && !unchanged) {
-              this.entries.delete(artifact.key)
-              touched.add(artifact.key)
-            }
-          } else {
-            this.entries.set(artifact.key, updated)
-            touched.add(artifact.key)
-          }
+      let lastYield = this.now()
+      let next = 0
+      const lane = async (): Promise<void> => {
+        for (;;) {
+          if (this.disposed) return
+          const artifact = pending[next]
+          next += 1
+          if (artifact === undefined) return
+          await this.foldOne(artifact)
           processed += 1
           publishProgress()
-
           const stamp = this.now()
           if (stamp - lastYield >= this.options.chunkYieldMs) {
             lastYield = stamp
@@ -390,11 +407,13 @@ export class UnifiedIndexStore {
           }
         }
       }
+      const lanes = Math.max(1, Math.min(16, Math.floor(this.options.concurrency ?? 4)))
+      await Promise.all(Array.from({ length: lanes }, () => lane()))
 
       for (const key of [...this.entries.keys()]) {
         if (seen.has(key)) continue
         this.entries.delete(key)
-        touched.add(key)
+        this.dirty = true
       }
 
       this.meta = { ...this.meta, builtAt: this.now() }
@@ -406,7 +425,12 @@ export class UnifiedIndexStore {
         durable: true,
         updatedAt: this.meta.builtAt,
       }
-      this.scheduleWrite()
+      // A steady-state pass touches nothing, and rewriting a ~20 MB cache every
+      // refresh interval is pure disk churn; persist only when the index moved.
+      if (this.dirty) {
+        this.dirty = false
+        this.scheduleWrite()
+      }
     } catch (error) {
       // A failed incremental pass keeps whatever the last good one produced;
       // the panel shows the message beside real numbers rather than instead of them.
@@ -418,8 +442,41 @@ export class UnifiedIndexStore {
     }
   }
 
+  /**
+   * Bring one artifact's entry up to date, reusing the previous read when the
+   * file only grew. Unchanged artifacts cost a stat, not a decode.
+   */
+  private async foldOne(artifact: SessionArtifact): Promise<void> {
+    const previous = this.entries.get(artifact.key)
+    const unchanged = previous !== undefined
+      && previous.size === artifact.size
+      && previous.mtimeMs === artifact.mtimeMs
+      && previous.ino === artifact.ino
+      && previous.dev === artifact.dev
+    if (unchanged) return
+
+    // An inode swap, a shrink, or a backwards clock all mean the bytes we
+    // already consumed are no longer the bytes on disk.
+    const resumable = previous !== undefined
+      && previous.ino === artifact.ino
+      && previous.dev === artifact.dev
+      && artifact.size >= previous.cursor
+      && artifact.mtimeMs >= previous.mtimeMs
+    const updated = await this.foldArtifact(artifact, resumable ? previous : undefined)
+    if (updated === undefined) {
+      this.skippedArtifacts += 1
+      if (previous !== undefined) {
+        this.entries.delete(artifact.key)
+        this.dirty = true
+      }
+      return
+    }
+    this.entries.set(artifact.key, updated)
+    this.dirty = true
+  }
+
   private async foldArtifact(
-    artifact: { path: string; size: number; mtimeMs: number; ino: number; dev: number; home: DshHome },
+    artifact: SessionArtifact,
     previous: IndexEntry | undefined,
   ): Promise<IndexEntry | undefined> {
     try {

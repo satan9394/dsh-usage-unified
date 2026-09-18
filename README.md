@@ -29,8 +29,10 @@ index now feeds one dashboard, so the numbers agree everywhere.
 | Longest streak | ✗ | ✓ | ✓ |
 | Peak hour | ✗ | ✓ | ✓ |
 | Cache-hit-rate + model-call cards | ✗ | ✗ | ✓ |
-| Per-model donut + share | ✓ | ✗ | ✓ |
-| Per-model input/cacheRead/cacheWrite/output split | ✗ | ✓ | ✓ |
+| One model panel (share + four-bucket split + call count per row) | half | half | ✓ |
+| Collapsible panels / model long tail hidden by default | ✗ | ✗ | ✓ |
+| Session ranking with call drill-down | ✗ | ✗ | ✓ |
+| Optional cost estimate (local pricing table; missing prices are disclosed, never guessed) | ✗ | ✗ | ✓ |
 | Per-call detail table (time, duration, tokens, cache %, model, effort) | ✓ | ✗ | ✓ |
 | Workspace + main/subtask scope filters | ✓ | ✗ | ✓ |
 | CSV / JSON export | ✓ | ✗ | ✓ |
@@ -38,7 +40,10 @@ index now feeds one dashboard, so the numbers agree everywhere.
 | zh/en, light/dark | ✓ | ✓ | ✓ |
 
 > The activity heatmap both upstreams shipped was **dropped** here as redundant
-> with the trend chart.
+> with the trend chart. Each upstream had its own model panel — one share-only,
+> one split-only — and they are **merged into one** here: a single row carries
+> the share, the stacked four-bucket bar, the call count and (optionally) the
+> cost, with "show all" appearing only past six models.
 
 ## Install
 
@@ -70,12 +75,13 @@ src/
   reader.ts         walk session logs; decode both on-disk formats (no private API)
   zstd-frames.ts    scan concatenated zstd frames (resume cursor is frame-aligned)
   fold.ts           pure resumable fold: session → totals, day/hour slices, calls
-  aggregate.ts      snapshot + call rows + streaks/peak hour + CSV
-  index-store.ts    incremental index, file-backed cache under DSH_HOME
-  transport.ts      /snapshot, /calls, /export.csv, /export.json (loopback only)
+  aggregate.ts      snapshot + session ranking + call rows + streaks/peak hour + CSV
+  pricing.ts        optional pricing table: load, match by model id, cost + coverage
+  index-store.ts    incremental index (parallel decode), file-backed cache under DSH_HOME
+  transport.ts      /snapshot, /calls (incl. ?session= drill-down), /export.* (loopback only)
   types.ts          the wire contract shared by both halves
   client/
-    index.tsx       sidebar + overlay + settings registrations, dashboard
+    index.tsx       sidebar + overlay + settings registrations, dashboard (collapsible panels, session drill-down)
     i18n.ts         merged zh/en dictionaries
     source.ts       the one transport seam
     styles.ts       dashboard stylesheet
@@ -100,20 +106,48 @@ Key design decisions (full rationale in [PLAN.md](./PLAN.md)):
 - **File-backed cache.** The index persists to `$DSH_HOME/usage-unified/index-v1.json`
   atomically, rather than depending on `ctx.storageDomain`, so the panel always
   loads.
+- **Parallel index.** A scan first does a stat-only discovery pass, then decodes
+  artifacts with bounded concurrency (default 4). Unchanged sessions cost one
+  stat, so a cold build is no longer serialised behind the single largest log.
+- **No invented numbers.** A model missing from the pricing table is marked
+  unpriced and counted as such; the cost card only appears when a table exists,
+  and coverage, retried steps and skipped logs are always disclosed in the
+  footer.
+
+## Cost estimate (optional, opt-in)
+
+dsh ships no price list, so the plugin **shows no cost by default**. When
+`$DSH_HOME/usage-unified/pricing.json` exists, an "Est. cost" card and a
+per-model cost appear; models with no price are counted as *unpriced*, never as
+free, and the card plus the footer disclose the priced share.
+
+```powershell
+npm run pricing:setup     # writes $DSH_HOME/usage-unified/pricing.json
+```
+
+By default it converts CC Switch's `~/.cc-switch/model-pricing.json`; point
+`--source` at any file in this project's own `{ models: { id: {...} } }` shape
+instead. Prices are USD **per million tokens**, one rate per bucket (input /
+cache read / cache write / output), matching the accounting exactly. Changes are
+picked up on the next index scan, so a price edit needs no reinstall.
+
+> The scripts under `scripts/` are only available from a source checkout; they
+> are not part of the published npm package.
 
 ## Development
 
 ```powershell
 npm install          # .npmrc sets legacy-peer-deps for the dsh peer tree
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest (45 tests)
+npm run test         # vitest (61 tests)
 npm run build        # tsdown → lib/index.js + lib/client.js
 npm run check        # all three
 npm run verify:realdata   # read-only pass over this machine's real dsh homes
 npm run smoke:local       # local HTTP self-test against real ~/.dsh (no install)
 npm run smoke:serve       # keep the local viewer up (prints the URL)
-npm run report            # static self-contained report (30d) → opens in browser
-npm run report:all        # same, all-time range
+npm run pricing:setup     # build the cost table from this machine's CC Switch
+npm run report            # static self-contained report (all-time) → opens in browser
+npm run report:30d        # same, last 30 days
 ```
 
 `smoke:local` is the "run it in the workspace, point at the real data" path: it
@@ -158,10 +192,16 @@ npm run leaderboard:off       # undo: remove the daily task, stop submitting
 
 `leaderboard:setup` follows [docs/LEADERBOARD.md](docs/LEADERBOARD.md), which
 states exactly what leaves the machine and asks before anything is uploaded.
-That document also covers the exporters (`scripts/tokscale-export.mjs` for DSH's
-versioned logs, `scripts/ccswitch-export.mjs` for CC Switch's proxy-side Claude
-usage), the pricing table (`scripts/custom-pricing.mjs`), and the daily refresh
-task.
+That document also covers the exporters (`scripts/ccswitch-export.mjs` for
+CC Switch's proxy-side Claude usage), the pricing table
+(`scripts/custom-pricing.mjs`), and the daily refresh task.
+
+> `scripts/tokscale-export.mjs` is **deprecated**: the upstream bug it worked
+> around was fixed by [junhoyeo/tokscale#1328](https://github.com/junhoyeo/tokscale/pull/1328),
+> released in tokscale **v4.17.0** (2026-09-15). tokscale ≥ 4.17.0 reads
+> versioned DSH logs natively, so keeping both the exporter and its
+> `extraScanPaths` entry now **double-counts**; retire them together following
+> the migration steps in the script header.
 
 ### Privacy at a glance
 

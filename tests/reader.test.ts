@@ -1,6 +1,9 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { decodeArtifactBytes, logPriority } from '../src/reader.ts'
+import { decodeArtifactBytes, logPriority, readArtifact } from '../src/reader.ts'
 
 /** Compress each line into its own independently decodable frame, as the backend does. */
 function container(lines: readonly string[]): Buffer {
@@ -57,6 +60,27 @@ describe('session log decoder', () => {
 
   it('throws when a full read has no header line', () => {
     expect(() => decodeArtifactBytes(container([MESSAGE]), true)).toThrow(/no header line/)
+  })
+
+  it('reads only the appended tail when resuming from disk', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-usage-reader-'))
+    try {
+      const header = JSON.parse(HEADER_V3) as { version: number; id: string; createdAt: number }
+      const path = join(dir, 'session.v3.jsonl.zstd')
+      const head = container([HEADER_V3, HUMAN])
+      await writeFile(path, head)
+      // A resume must not need the header frame to still be in the slice it reads.
+      const read = await readArtifact(path, head.length, header)
+      expect(read.events).toHaveLength(0)
+      expect(read.cursor).toBe(head.length)
+
+      await writeFile(path, Buffer.concat([head, container([MESSAGE])]))
+      const tail = await readArtifact(path, head.length, header)
+      expect(tail.events.map(event => event.type)).toEqual(['assistant/message'])
+      expect(tail.cursor).toBe(head.length + container([MESSAGE]).length)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('prefers the newest compressed generation when a directory holds several', () => {

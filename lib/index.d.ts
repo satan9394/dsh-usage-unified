@@ -39,6 +39,17 @@ interface TokenBreakdown extends Buckets {
   /** Subset of `output`; display only. Never added into a total. */
   reasoning: number;
 }
+/**
+ * Cost estimate fields, present only when a local pricing table resolved the
+ * model. `priced: false` means the tokens are deliberately excluded from the
+ * estimate rather than counted as free.
+ */
+interface Costed {
+  /** Estimated USD for this row; absent when the model has no price. */
+  costUsd?: number;
+  /** False when the row's model was missing from the pricing table. */
+  priced?: boolean;
+}
 /** Activity in one time bucket (a local day, or one local hour of it). */
 interface TimeBucket {
   tokens: number;
@@ -53,7 +64,7 @@ interface ModelTally {
   samples: number;
 }
 /** Per-model rollup as presented to the UI (audit-plugin naming kept). */
-interface ModelStats extends TokenBreakdown {
+interface ModelStats extends TokenBreakdown, Costed {
   /** `provider/model`, the attribution key. */
   key: string;
   provider: string;
@@ -64,6 +75,39 @@ interface ModelStats extends TokenBreakdown {
   calls: number;
   /** Share of the enclosing total, 0-100. */
   percent: number;
+}
+/**
+ * One session's roll-up, for the ranking panel and its drill-down.
+ *
+ * Token figures follow the enclosing window, so a bounded range ranks sessions
+ * by what they spent inside it rather than by their lifetime total.
+ */
+interface SessionStats extends TokenBreakdown, Costed {
+  /** Normalized session id; also the `/calls?session=` filter value. */
+  sessionId: string;
+  /** The dsh home the session was read from. */
+  home: string;
+  /** Working directory, when the session recorded one. */
+  cwd?: string;
+  /** True for a delegated/subagent session. */
+  subtask: boolean;
+  /** Session creation time from the log header. */
+  createdAt: number;
+  /** First and last event timestamps, or null when none passed the skew guard. */
+  startTime: number | null;
+  endTime: number | null;
+  tokens: number;
+  /** Surviving call rows in the window. */
+  calls: number;
+  /** Human + non-empty assistant messages in the window. */
+  messages: number;
+  /** Attribution key of the busiest model, or the unknown key. */
+  topModel: string;
+  topModelProvider: string;
+  /** Tokens attributed to `topModel`. */
+  topModelTokens: number;
+  /** Distinct models this session used in the window. */
+  modelCount: number;
 }
 /** One local calendar day of activity, gap-free for a bounded range. */
 interface DayStats extends TokenBreakdown {
@@ -204,8 +248,27 @@ interface Snapshot {
     path: string;
     sessions: number;
   }[];
+  /** Top sessions by tokens in the range, capped; `sessionTotal` is the real count. */
+  sessions: SessionStats[];
+  /** Distinct sessions with work in the range. */
+  sessionTotal: number;
+  /** Cost estimate from the optional local pricing table; null when absent. */
+  cost: CostSummary | null;
   homes: HomeInfo[];
   coverage: Coverage;
+}
+/** Cost estimate roll-up, disclosed beside the number it explains. */
+interface CostSummary {
+  currency: 'USD';
+  total: number;
+  /** Tokens whose model had a price. */
+  pricedTokens: number;
+  /** Tokens whose model had no price — excluded, never treated as free. */
+  unpricedTokens: number;
+  /** Provenance label of the pricing table. */
+  source: string;
+  /** Epoch ms the pricing source changed, or null when unknown. */
+  updatedAt: number | null;
 }
 /** Failure envelope returned by the transport on a non-200. */
 interface ApiError {
@@ -396,8 +459,12 @@ interface IndexStoreOptions {
   currentHome: string;
   /** Absolute index cache path; defaults to `$DSH_HOME/usage-unified/index-v1.json`. */
   cachePath: string;
+  /** Optional pricing file; when absent or unreadable, no cost estimate is shown. */
+  pricingPath?: string;
   /** Debounce delay before writing the index, in ms. */
   cacheWriteDelayMs: number;
+  /** Artifacts decoded concurrently during a scan. */
+  concurrency?: number;
   /** OS home directory the discovery heuristic hangs off; injectable for tests. */
   osHome?: string;
   /** Injectable clock; tests pin it. */
@@ -416,6 +483,7 @@ interface StoreQuery {
 interface StoreCallsQuery extends StoreQuery {
   model?: string;
   provider?: string;
+  session?: string;
   minInputTokens?: number;
   minOutputTokens?: number;
   page: number;
@@ -437,9 +505,11 @@ declare class UnifiedIndexStore {
   private running;
   private loading;
   private writeTimer;
+  private dirty;
   private disposed;
   private homeInfos;
   private skippedArtifacts;
+  private pricing;
   private state;
   constructor(options: IndexStoreOptions);
   /** Current build phase and progress. */
@@ -462,6 +532,8 @@ declare class UnifiedIndexStore {
    * @param query - the window, scope and workspace to report.
    */
   snapshot(query: StoreQuery): Snapshot;
+  /** Decorate the model/session rows in place and summarize coverage. */
+  private priceResult;
   /**
    * Paginate the call-detail rows.
    *
@@ -474,6 +546,11 @@ declare class UnifiedIndexStore {
     models: Snapshot['models'];
   }>;
   private scan;
+  /**
+   * Bring one artifact's entry up to date, reusing the previous read when the
+   * file only grew. Unchanged artifacts cost a stat, not a decode.
+   */
+  private foldOne;
   private foldArtifact;
   private scheduleWrite;
   private persist;
@@ -553,6 +630,8 @@ interface AggregateResult {
     path: string;
     sessions: number;
   }[];
+  sessions: SessionStats[];
+  sessionTotal: number;
   coverage: Omit<Coverage, 'skippedArtifacts'>;
 }
 /** Local hour 0-23 with the most messages, tie-broken by tokens; null when empty. */
@@ -568,6 +647,8 @@ declare function aggregateSnapshot(input: readonly SessionFold[], query: Snapsho
 interface CallsQuery extends SnapshotQuery {
   model?: string;
   provider?: string;
+  /** Session id from the ranking panel's drill-down. */
+  session?: string;
   minInputTokens?: number;
   minOutputTokens?: number;
   maxRecords: number;
@@ -786,6 +867,14 @@ interface Config {
   apiPath: string;
   /** Optional index cache path; defaults below `DSH_HOME`. */
   cachePath?: string;
+  /**
+   * Optional pricing table used for the cost estimate. Defaults to
+   * `$DSH_HOME/usage-unified/pricing.json`; when the file is missing, no cost
+   * is shown rather than a guessed one.
+   */
+  pricingPath?: string;
+  /** Sessions decoded in parallel during a scan. */
+  indexConcurrency: number;
   /** Debounce delay for index writes, in ms. */
   cacheWriteDelayMs: number;
 }
@@ -797,4 +886,4 @@ declare const Config: Schema<Config>;
  */
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ApiError, Buckets, CallRecord, CallsPage, Config, Coverage, DEFAULT_API_PATH, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, collectCalls, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, logPriority, name, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
+export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, collectCalls, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, logPriority, name, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
