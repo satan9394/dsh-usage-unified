@@ -109,7 +109,7 @@ npm run pricing:setup     # 写 $DSH_HOME/usage-unified/pricing.json
 ```powershell
 npm install          # .npmrc 设 legacy-peer-deps（dsh 依赖树）
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest（67 项）
+npm run test         # vitest（68 项）
 npm run build        # tsdown → lib/index.js + lib/client.js
 npm run check        # typecheck + test + build
 npm run verify:realdata   # 只读扫本机真实 dsh home

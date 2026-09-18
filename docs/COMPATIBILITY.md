@@ -42,7 +42,7 @@ The package ships its build output (`lib/index.js`, `lib/index.d.ts`,
 
 ## Evidence
 
-- `npm run check` (typecheck + 67 unit tests + build) passes.
+- `npm run check` (typecheck + 68 unit tests + build) passes.
 - `npm run verify:realdata` reads this machine's real dsh homes in **both** log
   formats and cross-checks folded tokens against an independently coded
   reconstruction (exact match).

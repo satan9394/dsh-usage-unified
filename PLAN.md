@@ -74,7 +74,7 @@ by the harness.
 
 ## Verification strategy
 
-- **Unit** (62 tests): zstd frame scanning, both log decoders (incl. packed
+- **Unit** (68 tests): zstd frame scanning, both log decoders (incl. packed
   records, torn tails, foreign versions, resume, and a tail-only on-disk read),
   home discovery, the fold (replace/retry/seed/compaction/calls/timing/effort),
   aggregation (ranges, gap-fill, scope/workspace filters, streaks, peak hour,
