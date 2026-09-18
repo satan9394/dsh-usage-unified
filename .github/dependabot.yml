@@ -1,8 +1,24 @@
 # The previous revision had `package-ecosystem: ""` and `directory: ""`, which
 # is not a valid target: Dependabot still opened pull requests, but against a
 # stale base and without a usable updater, so the bumps it produced could not be
-# merged (see the closed vitest PRs). Both fields are now real, and the workflow
+# merged (see the closed vitest PRs). Both fields are real now, and the workflow
 # files are watched too.
+#
+# The `ignore` list is deliberate, not laziness — each entry encodes a constraint
+# this package actually has:
+#
+#   react / react-dom / @types/react*  The browser half is injected into the
+#     harness shell and must run on the React the harness provides, which is 18.
+#     A major bump here silently rewrites `peerDependencies.react` away from the
+#     host's runtime; the unit tests do not render React, so CI would not notice.
+#   typescript                         Major versions change emit and checking
+#     behaviour; take them on purpose, with a regenerated `lib/`, not weekly.
+#   @types/node                        Must describe the OLDEST supported Node
+#     (engines: ^22.19 || >=24), not the newest, or a type-clean build can call
+#     an API that does not exist at runtime.
+#   tsdown                             `lib/` is committed, so a build-tool bump
+#     changes the shipped artifact; it has to be paired with a rebuild in the
+#     same change. Minor is where its output changes (0.x).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -12,6 +28,21 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react-dom'
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      - dependency-name: tsdown
+        update-types: ['version-update:semver-minor', 'version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
