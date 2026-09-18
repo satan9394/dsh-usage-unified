@@ -78,7 +78,6 @@
     "usage-statistics",
     "analytics"
   ],
-  "dependencies": {},
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-client-locale": "^0.1.5-rc.1",
@@ -109,6 +108,7 @@
     "react-dom": "^18.3.1",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
   }
 }

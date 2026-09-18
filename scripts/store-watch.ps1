@@ -20,21 +20,43 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "dsh-store-$Issue.log"
 $stamp = Get-Date -Format s
 
-try {
-    $json = gh issue view $Issue --repo $Repo --json state,updatedAt,title,comments 2>&1 | Out-String
-    $view = $json | ConvertFrom-Json
-} catch {
-    Add-Content -LiteralPath $log -Encoding utf8 -Value "[$stamp] ERROR: $($_.Exception.Message)"
+# `gh` is run through the call operator so its stderr cannot be mistaken for
+# JSON, and its exit code is checked explicitly. A transient failure (`gh` not
+# on PATH, rate limit, offline) must leave a diagnosable line rather than an
+# opaque "JSON parse failed" that loses the poll entirely.
+function Write-Line([string]$text) {
+    Add-Content -LiteralPath $log -Encoding utf8 -Value $text
+    Write-Host $text
+}
+
+$raw = (& gh issue view $Issue --repo $Repo --json state,updatedAt,title,comments 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0) {
+    Write-Line "[$stamp] ERROR: gh exited $LASTEXITCODE :: $(($raw -replace '\s+', ' ').Trim())"
     return
 }
 
+# Tolerate stray leading noise: parse from the first brace to the last.
+$text = $raw.Trim()
+$start = $text.IndexOf('{')
+$end = $text.LastIndexOf('}')
+if ($start -lt 0 -or $end -lt $start) {
+    Write-Line "[$stamp] ERROR: no JSON object in gh output :: $(($text -replace '\s+', ' ').Trim())"
+    return
+}
+
+try {
+    $view = $text.Substring($start, $end - $start + 1) | ConvertFrom-Json -ErrorAction Stop
+} catch {
+    Write-Line "[$stamp] ERROR: $($_.Exception.Message) :: $(($text -replace '\s+', ' ').Trim())"
+    return
+}
+
+$comments = @($view.comments)
 $last = ''
-if ($view.comments -and $view.comments.Count -gt 0) {
-    $body = [string]$view.comments[-1].body
+if ($comments.Count -gt 0) {
+    $body = [string]$comments[-1].body
     $body = ($body -replace '\s+', ' ').Trim()
     if ($body.Length -gt 240) { $body = $body.Substring(0, 240) + '…' }
     $last = $body
 }
-$entry = "[$stamp] state=$($view.state) updated=$($view.updatedAt) comments=$($view.comments.Count) last=$last"
-Add-Content -LiteralPath $log -Encoding utf8 -Value $entry
-Write-Host $entry
+Write-Line "[$stamp] state=$($view.state) updated=$($view.updatedAt) comments=$($comments.Count) last=$last"
