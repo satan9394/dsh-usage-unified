@@ -157,6 +157,13 @@ the next index scan, so a price edit needs no reinstall.
 > The scripts under `scripts/` are only available from a source checkout; they
 > are not part of the published npm package.
 
+The static report is generated from the same snapshot and reads the same way:
+`--range` drives the headline cards (no separate "range" row hiding the filter),
+it carries the same merged model panel (share + four buckets + calls + cost, the
+tail behind a toggle), the same session ranking and cost card with the peak-blend
+disclosure, and it drops the activity heatmap for the same reason the panel did
+(it duplicated the per-day bars).
+
 ## Development
 
 ```powershell
