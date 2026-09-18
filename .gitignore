@@ -7,7 +7,6 @@ coverage/
 .smoke-cache/
 report-*.html
 logs/
-.tokscale-home/
 .ccswitch-home/
 tokscale-wrapped.png
 tokscale-embed.svg

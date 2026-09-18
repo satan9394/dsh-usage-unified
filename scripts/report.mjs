@@ -90,8 +90,7 @@ if (projection !== undefined) {
   console.log(`  dsh projection=${projection.tokens} plugin=${snapshot.allTime.totals.tokens} delta=${delta}`)
 }
 
-// Optional: the tokscale Wrapped image, when scripts/tokscale-export.mjs +
-// `tokscale wrapped` have been run.
+// Optional: the tokscale Wrapped image, when `tokscale wrapped` has been run.
 let hasWrapped = false
 try {
   await access(join(projectRoot, 'tokscale-wrapped.png'))
@@ -319,7 +318,7 @@ const html = `<!doctype html>
 
   ${hasWrapped ? `<section><h2>Tokscale Wrapped（嵌入你 star 的 <a href="https://github.com/junhoyeo/tokscale" style="color:#65a9ff">junhoyeo/tokscale</a>）</h2>
     <img class="wrapped" src="tokscale-wrapped.png" alt="tokscale wrapped" />
-    <div class="note">由 <code>bun x tokscale@latest wrapped -c dsh --clients</code> 生成 · MIT © junhoyeo/tokscale。数据源为本机 DSH 会话（完整版）；tokscale 原生 DSH 解析只认旧文件名 <code>session.jsonl.zstd</code>，会漏掉 <code>session.v3.*</code>（约 40%）。该缺陷已由 <a href="https://github.com/junhoyeo/tokscale/pull/1328">tokscale#1328</a> 修复并随 <b>v4.17.0</b> 发布，升级到 ≥4.17.0 后 tokscale 能直接读版本化日志，<code>scripts/tokscale-export.mjs</code> 及其 <code>extraScanPaths</code> 条目应一并退休（否则会重复计数）。</div></section>` : ''}
+    <div class="note">由 <code>bun x tokscale@latest wrapped -c dsh --clients</code> 生成 · MIT © junhoyeo/tokscale。数据源为本机 DSH 会话（完整版）；tokscale 原生 DSH 解析只认旧文件名 <code>session.jsonl.zstd</code>，会漏掉 <code>session.v3.*</code>。该缺陷已由 <a href="https://github.com/junhoyeo/tokscale/pull/1328">tokscale#1328</a> 修复并随 <b>v4.17.0</b> 发布，tokscale 现在直接读版本化日志；本仓库原先的导出器与 <code>extraScanPaths.dsh</code> 条目已按此**退休**（保留会重复计数，实测 DSH 24.80B vs 15.38B）。</div></section>` : ''}
 
   ${tokscaleProfile}
 
