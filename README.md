@@ -198,6 +198,13 @@ the call endpoint and a persistence round-trip.
 - Targets the `dsh` 0.1.5-rc.1 plugin API (`peerDependencies`), and reads both
   the legacy and the current session-log layouts, so it is not limited to one
   harness generation.
+- `dsh.compatibility` in `package.json` **declares only what has actually been
+  verified**: currently `>=0.1.5-rc.2 <0.1.6` with
+  `dshReleases["0.1.5-rc.2"] = "compatible"`. A caret range is deliberately not
+  used — it would claim rc.3+ as well, which nobody has tested. Further stable
+  rc releases get their own declaration once verified; DSH STORE's rolling
+  "latest three releases" window turns the entry `unlisted` (not rejected) once
+  the precise claim drops out of it.
 - The browser half declares its own minimal structural types for the injected
   runtime seam (`src/client/runtime.d.ts`) instead of importing
   `@deepseek-ai/dsh-client-runtime`, whose published line has diverged from the

@@ -46,7 +46,17 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(payload)
 }
 
-const RANGES = new Set<RangeId>(['all', 'year', '30d', '7d'])
+const RANGES = new Set<RangeId>(['all', '30d', '7d'])
+
+/**
+ * Retired range ids that still answer, mapped to their replacement.
+ *
+ * `year` fed the activity heatmap, which both halves have dropped. A browser
+ * holding a cached client bundle can still ask for it, and a 400 there would
+ * break the whole panel rather than one removed chart — so it degrades to
+ * all-time instead of failing.
+ */
+const RANGE_ALIASES = new Map<string, RangeId>([['year', 'all']])
 const SCOPES = new Set<TaskScope>(['all', 'main', 'subtasks'])
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -60,7 +70,8 @@ interface ParsedCommon {
 }
 
 function parseCommon(url: URL): ParsedCommon {
-  const range = url.searchParams.get('range') ?? 'all'
+  const requested = url.searchParams.get('range') ?? 'all'
+  const range = RANGE_ALIASES.get(requested) ?? requested
   if (!RANGES.has(range as RangeId)) throw new Error('Invalid range')
   const scope = url.searchParams.get('scope') ?? 'all'
   if (!SCOPES.has(scope as TaskScope)) throw new Error('Invalid task scope')
