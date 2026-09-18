@@ -269,6 +269,12 @@ interface CostSummary {
   source: string;
   /** Epoch ms the pricing source changed, or null when unknown. */
   updatedAt: number | null;
+  /**
+   * Share of usage assumed to fall in the provider's peak window, 0-1, for
+   * models priced with two time-of-day tiers. Disclosed because the estimate
+   * depends on it.
+   */
+  peakShare?: number;
 }
 /** Failure envelope returned by the transport on a non-200. */
 interface ApiError {
@@ -663,6 +669,110 @@ declare function collectCalls(input: readonly SessionFold[], query: CallsQuery):
 /** CSV export of the per-day per-model series, mirroring the audit plugin's columns. */
 declare function exportCsv(days: readonly DayStats[], models: readonly ModelStats[]): string;
 //#endregion
+//#region src/pricing.d.ts
+/** One rate set: USD per million tokens, per bucket. */
+interface RateSet {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+/**
+ * A model's effective rates.
+ *
+ * `input`/`output`/`cacheRead`/`cacheWrite` are what `costOf` charges. When the
+ * provider prices by time of day, `peak` keeps the higher tier and the four
+ * effective numbers are the peak-weighted blend of it and the off-peak table —
+ * so the estimate is neither the optimistic off-peak bound nor the punitive
+ * peak one.
+ */
+interface ModelPrice extends RateSet {
+  /** The peak tier, kept for disclosure; absent when the model is flat-priced. */
+  peak?: RateSet;
+}
+/** A loaded pricing table plus where it came from. */
+interface PricingTable {
+  /** Free-form provenance label ('cc-switch', 'manual', …) for disclosure. */
+  source: string;
+  /** Epoch ms the source last changed, or null when unknown. */
+  updatedAt: number | null;
+  /** Share of usage assumed to fall in a peak window, 0-1. */
+  peakShare: number;
+  /** Normalized model id → price. */
+  models: Map<string, ModelPrice>;
+}
+/**
+ * Share of usage in a peak window when a table does not say.
+ *
+ * DeepSeek prices peak as Monday-Friday 01:00-04:00 and 06:00-10:00 UTC — 7
+ * hours a day, 35 of the week's 168 — and OpenCode Go and Command Code both
+ * document the same schedule. A flat off-peak number would understate cost by
+ * exactly this share times the doubling.
+ */
+declare const DEFAULT_PEAK_SHARE = 0.2083;
+/**
+ * Normalize a model id for lookup: lowercase, drop a trailing date stamp or
+ * version tail so `deepseek-chat-v3-0324` still finds `deepseek-chat`.
+ */
+declare function normalizeModelId(id: string): string;
+/**
+ * Look a model up, trying the exact id first and then progressively shorter
+ * dash-separated prefixes. Cheap, deterministic, and good enough for the id
+ * shapes providers actually publish.
+ *
+ * A `provider/model` attribution key is accepted directly: this machine routes
+ * models whose own name contains a slash (`command/deepseek/deepseek-v4.1-flash`),
+ * so the segment after the last slash is tried as well.
+ */
+declare function lookupPrice(table: PricingTable | null, model: string): ModelPrice | null;
+/** USD cost of one token report, or null when the model has no price. */
+declare function costOf(table: PricingTable | null, model: string, buckets: Buckets): number | null;
+/**
+ * Parse a pricing file.
+ *
+ * Accepts both this project's shape (`{ models: { id: {input,…} } }`) and the
+ * CC Switch export (`{ models: [{ modelId, inputCostPerMillion, … }] }`), so an
+ * operator can point at either without a conversion step.
+ */
+declare function parsePricing(raw: unknown, fallbackSource: string): PricingTable | null;
+/** Read and parse a pricing file; any failure is a silent "no pricing". */
+declare function loadPricing(path: string): Promise<PricingTable | null>;
+/** The subset of a model or session row a price can be applied to. */
+interface Costable {
+  tokens: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costUsd?: number;
+  priced?: boolean;
+}
+/** A row plus the model id its tokens should be priced as. */
+interface PriceTarget {
+  row: Costable;
+  modelId: string;
+}
+/**
+ * Which rows a price pass should decorate, and which of them the summary sums.
+ *
+ * `basis` must partition the window's tokens exactly once — the per-model rows
+ * are the only set that does. Session rows are useful as a per-row number but
+ * describe the same tokens, so folding them into the total would double it.
+ */
+interface PricingInput {
+  basis: readonly PriceTarget[];
+  extra?: readonly PriceTarget[];
+}
+/**
+ * Decorate rows with costs and summarize coverage.
+ *
+ * Rows are mutated in place — they are freshly built per snapshot, never
+ * shared — so the caller keeps one object graph. A row with no price is marked
+ * `priced: false` and its tokens counted as unpriced; the estimate therefore
+ * never silently reads as "free".
+ */
+declare function applyPricing(input: PricingInput, table: PricingTable | null): CostSummary | null;
+//#endregion
 //#region src/homes.d.ts
 /**
  * Enumeration of every dsh home on this machine (decision D1).
@@ -886,4 +996,4 @@ declare const Config: Schema<Config>;
  */
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, collectCalls, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, logPriority, name, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
+export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DEFAULT_PEAK_SHARE, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, applyPricing, collectCalls, costOf, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, loadPricing, logPriority, lookupPrice, name, normalizeModelId, parsePricing, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
