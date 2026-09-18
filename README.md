@@ -91,6 +91,19 @@ footer, and as a section under **Settings**.
 > [docs/SECURITY.md](./docs/SECURITY.md) states exactly what the runtime does with those
 > capabilities. Nothing about the plugin's behaviour differs from the description here.
 
+### Updating
+
+The runtime (`lib/`) is loaded when the harness starts, so a new build only takes effect after a
+restart of the Web profile.
+
+- **From a checkout or a `link:`** — `git pull` in that directory, rebuild if the source changed
+  (`npm run build`), then restart. A `link:` dependency is a directory junction, so there is no
+  copy to refresh: the profile reads the checkout itself.
+- **From GitHub or npm** — `dsh plugin --profile web add <same target>` again. That install is
+  pinned to a commit, so re-adding is what moves it.
+
+Only a change to the runtime needs the restart; documentation and `scripts/` changes do not.
+
 ## Usage
 
 Open the sidebar footer entry (or Settings → Usage Stats). Pick a range; the caption under the
