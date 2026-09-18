@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "source": "DeepSeek 官方定价页 + OpenCode Go / Command Code 逐模型价目表 (2026-09-18)",
+  "peakShare": 0.2083,
+  "models": {
+    "deepseek-v4.1-flash": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.003,
+      "cacheWrite": 0,
+      "peak": { "input": 0.3, "output": 1.2, "cacheRead": 0.006, "cacheWrite": 0 }
+    },
+    "deepseek-flash": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.003,
+      "cacheWrite": 0,
+      "peak": { "input": 0.3, "output": 1.2, "cacheRead": 0.006, "cacheWrite": 0 }
+    },
+    "deepseek-v4-flash": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.003,
+      "cacheWrite": 0,
+      "peak": { "input": 0.3, "output": 1.2, "cacheRead": 0.006, "cacheWrite": 0 }
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.003,
+      "cacheWrite": 0,
+      "peak": { "input": 0.3, "output": 1.2, "cacheRead": 0.006, "cacheWrite": 0 }
+    },
+    "deepseek-v4-pro": {
+      "input": 0.66,
+      "output": 1.98,
+      "cacheRead": 0.022,
+      "cacheWrite": 0,
+      "peak": { "input": 1.32, "output": 3.96, "cacheRead": 0.044, "cacheWrite": 0 }
+    },
+    "muse-spark-1.2-contributor": {
+      "input": 0.1,
+      "output": 0.2,
+      "cacheRead": 0.002,
+      "cacheWrite": 0
+    }
+  }
+}

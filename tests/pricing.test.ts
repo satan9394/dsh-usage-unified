@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { applyPricing, costOf, lookupPrice, normalizeModelId, parsePricing, type PricingTable } from '../src/pricing.ts'
+import { applyPricing, costOf, DEFAULT_PEAK_SHARE, lookupPrice, normalizeModelId, parsePricing, type PricingTable } from '../src/pricing.ts'
 import type { ModelStats, SessionStats } from '../src/types.ts'
 
 const table: PricingTable = {
   source: 'test',
   updatedAt: 1,
+  peakShare: DEFAULT_PEAK_SHARE,
   models: new Map([
     ['claude-opus-4-7', { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 }],
     ['deepseek-chat', { input: 0.28, output: 0.42, cacheRead: 0.028, cacheWrite: 0.28 }],
@@ -62,6 +63,54 @@ describe('pricing parsing', () => {
     expect(parsePricing(null, 'x')).toBeNull()
     expect(parsePricing({ models: [] }, 'x')).toBeNull()
     expect(parsePricing({ models: 'nope' }, 'x')).toBeNull()
+  })
+})
+
+describe('time-of-day tiers', () => {
+  const declared = {
+    peakShare: 0.25,
+    models: {
+      flash: { input: 0.15, output: 0.6, cacheRead: 0.003, cacheWrite: 0, peak: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 } },
+      flat: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+    },
+  }
+
+  it('blends the peak tier into the effective rates by the declared share', () => {
+    const parsed = parsePricing(declared, 'x')
+    expect(parsed?.peakShare).toBe(0.25)
+    const flash = parsed?.models.get('flash')
+    expect(flash?.input).toBeCloseTo(0.15 * 0.75 + 0.3 * 0.25, 10)
+    expect(flash?.output).toBeCloseTo(0.6 * 0.75 + 1.2 * 0.25, 10)
+    expect(flash?.cacheRead).toBeCloseTo(0.003 * 0.75 + 0.006 * 0.25, 10)
+    // The peak tier survives for disclosure.
+    expect(flash?.peak?.input).toBe(0.3)
+  })
+
+  it('defaults the share to the documented DeepSeek peak window', () => {
+    const parsed = parsePricing({ models: { flash: { ...declared.models.flash } } }, 'x')
+    expect(parsed?.peakShare).toBe(DEFAULT_PEAK_SHARE)
+    expect(DEFAULT_PEAK_SHARE).toBeCloseTo(35 / 168, 4)
+    expect(parsed?.models.get('flash')?.input).toBeCloseTo(0.15 * (1 + DEFAULT_PEAK_SHARE), 10)
+  })
+
+  it('leaves a flat-priced model untouched', () => {
+    const parsed = parsePricing(declared, 'x')
+    const flat = parsed?.models.get('flat')
+    expect(flat?.input).toBe(1)
+    expect(flat?.peak).toBeUndefined()
+  })
+
+  it('ignores an out-of-range share and falls back to the default', () => {
+    expect(parsePricing({ peakShare: 5, models: { a: { input: 1 } } }, 'x')?.peakShare).toBe(DEFAULT_PEAK_SHARE)
+    expect(parsePricing({ peakShare: 0, models: { a: { input: 1 } } }, 'x')?.peakShare).toBe(DEFAULT_PEAK_SHARE)
+  })
+
+  it('carries the share into the cost summary', () => {
+    const parsed = parsePricing(declared, 'x')
+    const row = modelRow({ key: 'flash', model: 'flash', tokens: 1_000_000, input: 1_000_000 })
+    const summary = applyPricing({ basis: [{ row, modelId: 'flash' }] }, parsed)
+    expect(summary?.peakShare).toBe(0.25)
+    expect(summary?.total).toBeCloseTo(0.15 * 0.75 + 0.3 * 0.25, 10)
   })
 })
 

@@ -194,7 +194,7 @@ interface TrendSeries {
 }
 
 /** Smooth multi-series area/line trend — the multi-line treatment the bar chart lacked. */
-function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
+function SmoothTrend({ snapshot, note }: { snapshot: Snapshot; note?: ReactNode }): ReactNode {
   const { t, lang, numberLocale } = useLocale()
   const [off, setOff] = useState<Record<string, boolean>>({})
   const [hover, setHover] = useState<number | null>(null)
@@ -244,7 +244,7 @@ function SmoothTrend({ snapshot }: { snapshot: Snapshot }): ReactNode {
     setHover(index)
     setTipAt({ x: rect.left + (xAt(index) - padL) / plotW * rect.width, y: rect.top + (yAt(value) - padT) / plotH * rect.height })
   }
-  return <Panel id="trend" title={t('dailyTrend')} className="us-trend">
+  return <Panel id="trend" title={t('dailyTrend')} note={note} className="us-trend">
     <div className="us-trend-chart">
       <svg className="us-trend-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('dailyTrend')}>
         <defs><linearGradient id="us-total-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#922bff" stopOpacity="0.3" /><stop offset="100%" stopColor="#922bff" stopOpacity="0.02" /></linearGradient></defs>
@@ -597,25 +597,33 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
     const points = slice.map((day, index) => `${(index / (slice.length - 1) * 260).toFixed(1)},${(50 - day.tokens / max * 44 - 3).toFixed(1)}`).join(' ')
     return <svg className="us-spark" viewBox="0 0 260 52" preserveAspectRatio="none" aria-hidden="true"><polyline points={points} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
   }, [snapshot])
+  // The range the cards and the trend describe, spelled out: the picked label
+  // plus the exact day bounds the host resolved (all-time has no lower bound).
+  const rangeLabel = custom !== null ? t('customRange') : t((RANGE_OPTIONS.find(option => option.value === range) ?? RANGE_OPTIONS[0]!).label)
+  const windowNote: ReactNode = snapshot === null
+    ? t('windowRange', { label: rangeLabel, from: '…', to: '…' })
+    : snapshot.range.from === ''
+      ? t('windowAll')
+      : t('windowRange', { label: rangeLabel, from: snapshot.range.from, to: snapshot.range.to })
   const body: ReactNode = error ? <div className="us-state"><div><p>{t('loadError')}</p><small>{error}</small></div></div>
     : snapshot === null ? <div className="us-state"><div><div className="us-spinner" />{t('loading')}</div></div>
     : <>
       <div className="us-cards">
-        <Card icon="tokens" label={t('tokensUsage')} value={compact(snapshot.allTime.totals.tokens, numberLocale)} detail={t('inputOutputDetail', { input: compact(snapshot.allTime.totals.input, numberLocale), output: compact(snapshot.allTime.totals.output, numberLocale) })} accent="#1684ff" hero spark={sparkline} />
-        <Card icon="chat" label={t('sessions')} value={snapshot.allTime.totals.sessions} detail={snapshot.allTime.totals.subagentSessions > 0 ? t('subagentNote', { n: snapshot.allTime.totals.subagentSessions }) : undefined} accent="#9368ef" />
-        <Card icon="message" label={t('messages')} value={snapshot.allTime.totals.messages} accent="#219653" />
+        <Card icon="tokens" label={t('tokensUsage')} value={compact(snapshot.totals.tokens, numberLocale)} detail={t('inputOutputDetail', { input: compact(snapshot.totals.input, numberLocale), output: compact(snapshot.totals.output, numberLocale) })} accent="#1684ff" hero spark={sparkline} />
+        <Card icon="chat" label={t('sessions')} value={snapshot.totals.sessions} detail={snapshot.totals.subagentSessions > 0 ? t('subagentNote', { n: snapshot.totals.subagentSessions }) : undefined} accent="#9368ef" />
+        <Card icon="message" label={t('messages')} value={snapshot.totals.messages} accent="#219653" />
         <Card icon="chart" label={t('calls')} value={compact(snapshot.models.reduce((sum, model) => sum + model.calls, 0), numberLocale)} accent="#22b8b5" />
-        <Card icon="tokens" label={t('cacheHitRate')} value={(() => { const denom = snapshot.allTime.totals.input + snapshot.allTime.totals.cacheRead + snapshot.allTime.totals.cacheWrite; return denom > 0 ? `${(snapshot.allTime.totals.cacheRead / denom * 100).toFixed(1)}%` : '—' })()} accent="#2da2bb" />
-        {snapshot.cost !== null && <Card icon="chart" label={t('cost')} value={`≈$${formatCost(snapshot.cost.total, numberLocale)}`} detail={t('costCoverage', { percent: Math.round(snapshot.cost.pricedTokens / Math.max(1, snapshot.cost.pricedTokens + snapshot.cost.unpricedTokens) * 100), unpriced: compact(snapshot.cost.unpricedTokens, numberLocale) })} accent="#f59e0b" />}
-        <Card icon="calendar" label={t('activeDays')} value={snapshot.allTime.totals.activeDays} accent="#f59e0b" />
-        <Card icon="streak" label={t('streak')} value={snapshot.allTime.totals.currentStreak} accent="#ef5da8" />
-        <Card icon="streak" label={t('longestStreak')} value={snapshot.allTime.totals.longestStreak} accent="#a479e2" />
-        <Card icon="clock" label={t('peakHour')} value={formatHour(snapshot.allTime.totals.peakHour, t)} accent="#2da2bb" />
-        {snapshot.allTime.mostUsedModel
-          ? <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{snapshot.allTime.mostUsedModel.model}</span>} detail={`${snapshot.allTime.mostUsedModel.percent.toFixed(1)}% · ${snapshot.allTime.mostUsedModel.provider}`} accent="#65a9ff" />
+        <Card icon="tokens" label={t('cacheHitRate')} value={(() => { const denom = snapshot.totals.input + snapshot.totals.cacheRead + snapshot.totals.cacheWrite; return denom > 0 ? `${(snapshot.totals.cacheRead / denom * 100).toFixed(1)}%` : '—' })()} accent="#2da2bb" />
+        {snapshot.cost !== null && <Card icon="chart" label={t('cost')} value={`≈$${formatCost(snapshot.cost.total, numberLocale)}`} detail={snapshot.cost.peakShare === undefined ? t('costCoverage', { percent: Math.round(snapshot.cost.pricedTokens / Math.max(1, snapshot.cost.pricedTokens + snapshot.cost.unpricedTokens) * 100), unpriced: compact(snapshot.cost.unpricedTokens, numberLocale) }) : `${t('costCoverage', { percent: Math.round(snapshot.cost.pricedTokens / Math.max(1, snapshot.cost.pricedTokens + snapshot.cost.unpricedTokens) * 100), unpriced: compact(snapshot.cost.unpricedTokens, numberLocale) })} · ${t('costPeakBlend', { percent: Math.round(snapshot.cost.peakShare * 100) })}`} accent="#f59e0b" />}
+        <Card icon="calendar" label={t('activeDays')} value={snapshot.totals.activeDays} accent="#f59e0b" />
+        <Card icon="streak" label={`${t('streak')} · ${t('allTimeTag')}`} value={snapshot.totals.currentStreak} accent="#ef5da8" />
+        <Card icon="streak" label={`${t('longestStreak')} · ${t('allTimeTag')}`} value={snapshot.totals.longestStreak} accent="#a479e2" />
+        <Card icon="clock" label={t('peakHour')} value={formatHour(snapshot.totals.peakHour, t)} accent="#2da2bb" />
+        {snapshot.mostUsedModel
+          ? <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{snapshot.mostUsedModel.model}</span>} detail={`${snapshot.mostUsedModel.percent.toFixed(1)}% · ${snapshot.mostUsedModel.provider}`} accent="#65a9ff" />
           : <Card icon="model" label={t('mostUsedModel')} value={<span style={{ fontSize: '18px' }}>{t('noData')}</span>} accent="#65a9ff" />}
       </div>
-      <SmoothTrend snapshot={snapshot} />
+      <SmoothTrend snapshot={snapshot} note={windowNote} />
       <ModelPanel snapshot={snapshot} />
       <Breakdown snapshot={snapshot} />
       <SessionRanking snapshot={snapshot} onSelect={drillInto} />
@@ -625,6 +633,7 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
   const toolbar: ReactNode = <>
     <div className="us-range-row"><span className="us-range-label">{t('rangeLabel')}</span><div className="us-segment" aria-label={t('rangeLabel')}>{RANGE_OPTIONS.map(option => <button key={option.value} aria-pressed={custom === null && range === option.value} onClick={() => { setCustom(null); setRange(option.value) }}>{t(option.label)}</button>)}<button aria-pressed={custom !== null} onClick={() => setCustom(current => current ?? { from: localDate(-29), to: localDate() })}>{t('customRange')}</button></div></div>
     {custom !== null && <div className="us-custom-range"><input type="date" value={custom.from} max={custom.to} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, from: value }) }} /><span>→</span><input type="date" value={custom.to} min={custom.from} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, to: value }) }} /></div>}
+    <div className="us-window" aria-live="polite">{windowNote}</div>
     <div className="us-toolbar us-filterbar">
       <SelectControl label={t('workspace')} value={workspace} options={workspaceOptions} onChange={setWorkspace} />
       <SelectControl label={t('taskScope')} value={scope} options={scopeOptions} onChange={value => setScope(value as TaskScope)} />

@@ -121,6 +121,19 @@ await check('GET /snapshot?scope=main', async () => {
   if (snapshot.totals.subagentSessions !== 0) throw new Error('subagents leaked into main scope')
   return `${snapshot.totals.sessions} main sessions`
 })
+await check('range isolation (the headline must follow the range)', async () => {
+  const week = await getJson(`${API}/snapshot?range=7d`)
+  const all = await getJson(`${API}/snapshot?range=all`)
+  if (week.days.length !== 7) throw new Error(`range=7d returned ${week.days.length} days`)
+  if (!(week.totals.tokens < all.totals.tokens)) {
+    throw new Error(`7d total ${week.totals.tokens} is not below all-time ${all.totals.tokens}`)
+  }
+  // The bug this guards: the cards read allTime, so the page ignored the filter.
+  if (week.allTime.totals.tokens !== all.allTime.totals.tokens) throw new Error('all-time moved with the range')
+  const zeroRows = all.models.filter(model => model.tokens === 0).length
+  if (zeroRows > 0) throw new Error(`${zeroRows} zero-token model rows leaked into the panel`)
+  return `7d ${fmt(week.totals.tokens)} < all ${fmt(all.totals.tokens)}, all-time stable, no zero-token rows`
+})
 await check('GET /calls?range=all', async () => {
   const page = await getJson(`${API}/calls?range=all&pageSize=3`)
   if (page.items.length === 0) throw new Error('no call rows')

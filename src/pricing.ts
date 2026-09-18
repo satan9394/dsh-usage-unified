@@ -15,12 +15,26 @@
 import { readFile, stat } from 'node:fs/promises'
 import type { Buckets, CostSummary } from './types.ts'
 
-/** Per-million-token prices for one model. */
-export interface ModelPrice {
+/** One rate set: USD per million tokens, per bucket. */
+export interface RateSet {
   input: number
   output: number
   cacheRead: number
   cacheWrite: number
+}
+
+/**
+ * A model's effective rates.
+ *
+ * `input`/`output`/`cacheRead`/`cacheWrite` are what `costOf` charges. When the
+ * provider prices by time of day, `peak` keeps the higher tier and the four
+ * effective numbers are the peak-weighted blend of it and the off-peak table —
+ * so the estimate is neither the optimistic off-peak bound nor the punitive
+ * peak one.
+ */
+export interface ModelPrice extends RateSet {
+  /** The peak tier, kept for disclosure; absent when the model is flat-priced. */
+  peak?: RateSet
 }
 
 /** A loaded pricing table plus where it came from. */
@@ -29,13 +43,47 @@ export interface PricingTable {
   source: string
   /** Epoch ms the source last changed, or null when unknown. */
   updatedAt: number | null
+  /** Share of usage assumed to fall in a peak window, 0-1. */
+  peakShare: number
   /** Normalized model id → price. */
   models: Map<string, ModelPrice>
 }
 
+/**
+ * Share of usage in a peak window when a table does not say.
+ *
+ * DeepSeek prices peak as Monday-Friday 01:00-04:00 and 06:00-10:00 UTC — 7
+ * hours a day, 35 of the week's 168 — and OpenCode Go and Command Code both
+ * document the same schedule. A flat off-peak number would understate cost by
+ * exactly this share times the doubling.
+ */
+export const DEFAULT_PEAK_SHARE = 0.2083
+
 /** A price of zero everywhere means "unknown", not "free". */
 function usablePrice(price: ModelPrice): boolean {
   return price.input > 0 || price.output > 0 || price.cacheRead > 0 || price.cacheWrite > 0
+}
+
+function blend(offPeak: number, peak: number, share: number): number {
+  if (peak <= 0) return offPeak
+  return offPeak * (1 - share) + peak * share
+}
+
+/** Fold a declared peak tier into the effective rates. */
+function resolvePrice(declared: RateSet, peak: RateSet | undefined, share: number): ModelPrice {
+  if (peak === undefined || share <= 0) return { ...declared }
+  return {
+    input: blend(declared.input, peak.input, share),
+    output: blend(declared.output, peak.output, share),
+    cacheRead: blend(declared.cacheRead, peak.cacheRead, share),
+    cacheWrite: blend(declared.cacheWrite, peak.cacheWrite, share),
+    peak: { ...peak },
+  }
+}
+
+function peakShareOf(raw: unknown): number {
+  const value = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(value) && value > 0 && value < 1 ? value : DEFAULT_PEAK_SHARE
 }
 
 function numberOrZero(value: unknown): number {
@@ -103,9 +151,21 @@ export function parsePricing(raw: unknown, fallbackSource: string): PricingTable
   const record = raw as Record<string, unknown>
   const models = new Map<string, ModelPrice>()
   const source = typeof record['source'] === 'string' ? record['source'] : fallbackSource
+  const share = peakShareOf(record['peakShare'])
 
-  const add = (id: string, price: ModelPrice): void => {
-    if (id.length > 0) models.set(normalizeModelId(id), price)
+  const add = (id: string, offPeak: RateSet, peak?: RateSet): void => {
+    if (id.length > 0) models.set(normalizeModelId(id), resolvePrice(offPeak, peak, share))
+  }
+
+  const readPeak = (value: unknown): RateSet | undefined => {
+    if (typeof value !== 'object' || value === null) return undefined
+    const entry = value as Record<string, unknown>
+    return {
+      input: numberOrZero(entry['input']),
+      output: numberOrZero(entry['output']),
+      cacheRead: numberOrZero(entry['cacheRead']),
+      cacheWrite: numberOrZero(entry['cacheWrite']),
+    }
   }
 
   const declared = record['models']
@@ -131,13 +191,13 @@ export function parsePricing(raw: unknown, fallbackSource: string): PricingTable
         output: numberOrZero(entry['output']),
         cacheRead: numberOrZero(entry['cacheRead']),
         cacheWrite: numberOrZero(entry['cacheWrite']),
-      })
+      }, readPeak(entry['peak']))
     }
   }
 
   if (models.size === 0) return null
   const updatedAt = typeof record['updatedAt'] === 'number' ? record['updatedAt'] : null
-  return { source, updatedAt, models }
+  return { source, updatedAt, peakShare: share, models }
 }
 
 /** Read and parse a pricing file; any failure is a silent "no pricing". */
@@ -226,5 +286,13 @@ export function applyPricing(input: PricingInput, table: PricingTable | null): C
   // Per-row display for the other views; never added to the total.
   for (const target of input.extra ?? []) price(target)
 
-  return { currency: 'USD', total, pricedTokens, unpricedTokens, source: table.source, updatedAt: table.updatedAt }
+  return {
+    currency: 'USD',
+    total,
+    pricedTokens,
+    unpricedTokens,
+    source: table.source,
+    updatedAt: table.updatedAt,
+    peakShare: table.peakShare,
+  }
 }

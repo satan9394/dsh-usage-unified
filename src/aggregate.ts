@@ -163,6 +163,10 @@ function addBreakdown(target: TokenBreakdown, buckets: Buckets, reasoning: numbe
 function modelStatsFromTallies(tallies: Map<string, ModelTally>, totalTokens: number): ModelStats[] {
   const rows: ModelStats[] = []
   for (const [key, tally] of tallies) {
+    // A model that only ever appeared on a zero-usage sample (a display name
+    // leaking through, a failed request) is noise in a usage panel, and it
+    // would otherwise be reported as an unpriced row.
+    if (totalOf(tally.buckets) === 0) continue
     const slash = key.indexOf('/')
     rows.push({
       key,

@@ -282,6 +282,12 @@ export interface CostSummary {
   source: string
   /** Epoch ms the pricing source changed, or null when unknown. */
   updatedAt: number | null
+  /**
+   * Share of usage assumed to fall in the provider's peak window, 0-1, for
+   * models priced with two time-of-day tiers. Disclosed because the estimate
+   * depends on it.
+   */
+  peakShare?: number
 }
 
 /** Failure envelope returned by the transport on a non-200. */

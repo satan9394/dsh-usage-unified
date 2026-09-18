@@ -103,6 +103,12 @@ Key design decisions (full rationale in [PLAN.md](./PLAN.md)):
 - **All-time vs bounded range.** All-time reads authoritative per-session
   counters (so tokens with rejected timestamps are still counted); a bounded
   range is summed from day slices (so it can be smaller — the honest behaviour).
+- **The range governs the whole page.** The headline cards, the trend, the model
+  panel, the session ranking, the call table and the cost all read the selected
+  window (`snapshot.totals`). Only the streaks are all-time facts, so those two
+  cards are tagged "all-time" rather than silently ignoring the filter. Both the
+  range control's caption and the trend panel's subtitle spell out the exact
+  window.
 - **File-backed cache.** The index persists to `$DSH_HOME/usage-unified/index-v1.json`
   atomically, rather than depending on `ctx.storageDomain`, so the panel always
   loads.
@@ -125,11 +131,28 @@ free, and the card plus the footer disclose the priced share.
 npm run pricing:setup     # writes $DSH_HOME/usage-unified/pricing.json
 ```
 
-By default it converts CC Switch's `~/.cc-switch/model-pricing.json`; point
-`--source` at any file in this project's own `{ models: { id: {...} } }` shape
-instead. Prices are USD **per million tokens**, one rate per bucket (input /
-cache read / cache write / output), matching the accounting exactly. Changes are
-picked up on the next index scan, so a price edit needs no reinstall.
+Two sources are merged, the second winning:
+
+1. **Primary** — CC Switch's `~/.cc-switch/model-pricing.json` (`--source` can
+   point at any file in this project's own `{ models: { id: {...} } }` shape).
+2. **Override** — `scripts/pricing.override.json` (in git): the models the
+   primary table lacks, plus two-tier rates. It lives here rather than in CC
+   Switch because a models.dev re-sync can drop hand-added rows; every
+   `pricing:setup` re-applies it, so it cannot be lost.
+
+**Time-of-day tiers.** DeepSeek prices the whole Flash/Pro line by clock: peak
+is UTC Mon-Fri 01:00-04:00 and 06:00-10:00 (35 of the week's 168 hours). An
+entry may therefore declare both an off-peak table and a `peak` tier; the plugin
+folds them into the effective rate as `offPeak × (1 − peakShare) + peak ×
+peakShare` with `peakShare` defaulting to **0.2083**, and discloses that share on
+the cost card — neither the optimistic off-peak bound nor the peak one. The
+values shipped match [DeepSeek's own pricing page](https://api-docs.deepseek.com/quick_start/pricing),
+[OpenCode Go](https://opencode.ai/docs/go) and
+[Command Code](https://commandcode.ai/docs/resources/pricing-limits).
+
+Prices are USD **per million tokens**, one rate per bucket (input / cache read /
+cache write / output), matching the accounting exactly. Changes are picked up on
+the next index scan, so a price edit needs no reinstall.
 
 > The scripts under `scripts/` are only available from a source checkout; they
 > are not part of the published npm package.
@@ -139,7 +162,7 @@ picked up on the next index scan, so a price edit needs no reinstall.
 ```powershell
 npm install          # .npmrc sets legacy-peer-deps for the dsh peer tree
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest (61 tests)
+npm run test         # vitest (67 tests)
 npm run build        # tsdown → lib/index.js + lib/client.js
 npm run check        # all three
 npm run verify:realdata   # read-only pass over this machine's real dsh homes
