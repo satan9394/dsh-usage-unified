@@ -222,16 +222,18 @@ npm run leaderboard:off       # undo: remove the daily task, stop submitting
 
 `leaderboard:setup` follows [docs/LEADERBOARD.md](docs/LEADERBOARD.md), which
 states exactly what leaves the machine and asks before anything is uploaded.
-That document also covers the exporters (`scripts/ccswitch-export.mjs` for
-CC Switch's proxy-side Claude usage), the pricing table
-(`scripts/custom-pricing.mjs`), and the daily refresh task.
+That document also covers the one remaining supplement
+(`scripts/ccswitch-export.mjs` for CC Switch's proxy-side Claude usage), the
+pricing table (`scripts/custom-pricing.mjs`), and the daily refresh task.
 
-> `scripts/tokscale-export.mjs` is **deprecated**: the upstream bug it worked
-> around was fixed by [junhoyeo/tokscale#1328](https://github.com/junhoyeo/tokscale/pull/1328),
-> released in tokscale **v4.17.0** (2026-09-15). tokscale ≥ 4.17.0 reads
-> versioned DSH logs natively, so keeping both the exporter and its
-> `extraScanPaths` entry now **double-counts**; retire them together following
-> the migration steps in the script header.
+> **DSH needs no supplement any more.** The exporter this repo used to ship
+> (`scripts/tokscale-export.mjs`) existed because tokscale ignored versioned
+> `session.v<N>.jsonl.zstd` logs; [junhoyeo/tokscale#1328](https://github.com/junhoyeo/tokscale/pull/1328)
+> fixed that in tokscale **v4.17.0** (2026-09-15). Measured on this machine,
+> leaving the exporter and its `extraScanPaths.dsh` entry in place alongside
+> 4.17.0 reports DSH at **24.80B** instead of the 15.38B it reads by itself, so
+> both are retired. tokscale ≥ 4.17.0 is now required for the leaderboard step;
+> `leaderboard:setup` warns if yours is older.
 
 ### Privacy at a glance
 

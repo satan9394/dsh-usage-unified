@@ -40,8 +40,11 @@ if ($who -notmatch 'Username') {
     tokscale login
 }
 
-Write-Host 'Exporting local supplements tokscale cannot read...'
-node (Join-Path $PSScriptRoot 'tokscale-export.mjs')
+Write-Host 'Exporting the local supplement tokscale cannot read...'
+# DSH needs no export: tokscale >= 4.17.0 reads its versioned logs directly.
+if ((tokscale --version 2>&1) -match '(\d+)\.(\d+)' -and [int]$Matches[1] -eq 4 -and [int]$Matches[2] -lt 17) {
+    Write-Host 'WARNING: tokscale < 4.17.0 cannot read DSH''s versioned logs; upgrade it or DSH usage will be under-counted.'
+}
 node (Join-Path $PSScriptRoot 'ccswitch-export.mjs')
 node (Join-Path $PSScriptRoot 'custom-pricing.mjs')
 
@@ -53,7 +56,6 @@ if ($null -eq $obj.PSObject.Properties['scanner']) {
     $obj | Add-Member -MemberType NoteProperty -Name scanner -Value ([pscustomobject]@{}) -Force
 }
 $extra = [pscustomobject]@{
-    dsh    = @((Join-Path $root '.tokscale-home\sessions'))
     claude = @((Join-Path $root '.ccswitch-home'))
 }
 $obj.scanner | Add-Member -MemberType NoteProperty -Name extraScanPaths -Value $extra -Force
