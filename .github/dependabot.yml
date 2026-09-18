@@ -1,9 +1,21 @@
+# The previous revision had `package-ecosystem: ""` and `directory: ""`, which
+# is not a valid target: Dependabot still opened pull requests, but against a
+# stale base and without a usable updater, so the bumps it produced could not be
+# merged (see the closed vitest PRs). Both fields are now real, and the workflow
+# files are watched too.
 version: 2
 updates:
-  - package-ecosystem: ""
-    directory: ""
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
