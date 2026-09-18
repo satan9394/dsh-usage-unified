@@ -547,7 +547,7 @@ function Footer({ snapshot }: { snapshot: Snapshot }): ReactNode {
   if (coverage.retriedSteps > 0) items.push(t('footRetried', { n: coverage.retriedSteps }))
   if (coverage.truncatedSessions > 0) items.push(t('footTruncated', { n: coverage.truncatedSessions }))
   if (coverage.skippedArtifacts > 0) items.push(t('footSkipped', { n: coverage.skippedArtifacts }))
-  if (snapshot.cost === null) items.push(t('costUnavailable'))
+  items.push(snapshot.cost === null ? t('costUnavailable') : t('costNote'))
   return <div className="us-foot">{items.map(item => <span className="us-foot-item" key={item}>{item}</span>)}</div>
 }
 
