@@ -1,6 +1,6 @@
 {
   "name": "dsh-usage-unified",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unified DeepSeek Harness usage statistics — machine-wide token accounting across every dsh home, with trends, a custom date range, one model panel (share + four-bucket split + call count), a session ranking with call drill-down, CSV/JSON export and an optional local cost estimate.",
   "license": "MIT",
   "author": "dsh-usage-unified contributors",
