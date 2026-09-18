@@ -82,6 +82,7 @@ src/
 - **读取层与 harness 版本无关。** 旧格式是 JSONL *存储记录*，流式内容被打包（`text-chunks` 等）且没有 `seq`；新格式是纯事件。计费只需要带序号的 `assistant/message`，所以读取层保留「字符串 `type` + 数字 `seq`」的行、跳过打包块——**不依赖会改名的私有 `decodeStorageRecord`**。
 - **每个 `(turn, step)` 一条调用。** 用量每步上报两次（流式 `assistant/chunk` + 最终 `assistant/message`），折叠采用**替换而非累加**，并为明细表保留每步一条；compaction 单独成条。
 - **全部 vs 有界区间。** 全部时间读会话的权威计数器（时间戳被判为异常的用量也计入）；有界区间由按天切片求和（因此可能更小——这是诚实的行为）。
+- **区间贯穿全页。** 顶部卡片与趋势图、模型、会话排行、调用明细、成本取自**同一个所选区间**（`snapshot.totals`）；只有「连续天数」是全时属性，故在卡片上标注「全时」，避免误读。区间控件下方与趋势图标题栏都会写明当前统计区间（起止日期）。
 - **文件缓存。** 索引原子写入 `$DSH_HOME/usage-unified/index-v1.json`，不依赖可选的 `ctx.storageDomain`，保证面板始终能加载。
 - **并行索引。** 扫描先做一轮只读 stat 发现全部会话，再按有界并发（默认 4）解码；未变更的会话只付一次 stat，因此冷启动不再被单个大日志堵住。
 - **不猜数字。** 定价表缺项时该模型标为「未定价」并计入未定价总量，成本卡片只在定价表存在时出现；覆盖度、重试步骤、跳过日志一律在页脚披露。
@@ -90,11 +91,16 @@ src/
 
 DSH 本身不带价目表，所以本插件**默认不算钱**。只有当 `$DSH_HOME/usage-unified/pricing.json` 存在时，才会多出一张「估算成本」卡片与每行模型的成本；没有定价的模型**计入「未定价」而不是当作免费**，卡片与页脚都会披露已定价比例。
 
-生成定价表（默认取 CC Switch 的 `~/.cc-switch/model-pricing.json`，也可 `--source` 指定本项目自己的 `{ models: { id: {...} } }` 格式）：
+生成定价表（合并两个来源，后写的手工表优先）：
 
 ```powershell
 npm run pricing:setup     # 写 $DSH_HOME/usage-unified/pricing.json
 ```
+
+1. **主来源**：CC Switch 的 `~/.cc-switch/model-pricing.json`（`--source` 可换成任意本项目 `{ models: { id: {...} } }` 格式的文件）。
+2. **覆盖表**：`scripts/pricing.override.json`（入 git）——放主表缺的模型与**峰谷两档**的费率。放在这里而不是 CC Switch 里，是因为 CC Switch 的 models.dev 自动同步可能把手工条目冲掉；每次 `pricing:setup` 都会重新合并，冲不掉。
+
+**峰谷计价**：DeepSeek 全系按 DeepSeek 官方时段计价（高峰 = UTC 周一至周五 01:00–04:00 与 06:00–10:00，即北京 09:00–12:00 / 14:00–18:00，占全周 35/168h）。表里可给一条模型同时写空闲与 `peak` 两档，插件按 `peakShare`（默认 **0.2083**）折算成有效费率 = 空闲×(1−s) + 高峰×s，并在成本卡上披露折算比例——既不按乐观的空闲价低估，也不按高峰价高估。取值口径与 [DeepSeek 官方定价页](https://api-docs.deepseek.com/quick_start/pricing)、[OpenCode Go](https://opencode.ai/docs/go) 与 [Command Code](https://commandcode.ai/docs/resources/pricing-limits) 的逐模型价目表一致。
 
 价格单位是**每百万 Token 的美元价**，四个桶（输入 / 缓存读 / 缓存写 / 输出）各一档，与用量口径一一对应。重启 DSH web 后生效（每次索引扫描会重读定价表，改价无需重装插件）。
 
@@ -103,7 +109,7 @@ npm run pricing:setup     # 写 $DSH_HOME/usage-unified/pricing.json
 ```powershell
 npm install          # .npmrc 设 legacy-peer-deps（dsh 依赖树）
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest（61 项）
+npm run test         # vitest（67 项）
 npm run build        # tsdown → lib/index.js + lib/client.js
 npm run check        # typecheck + test + build
 npm run verify:realdata   # 只读扫本机真实 dsh home

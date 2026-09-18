@@ -55,6 +55,10 @@ happens only in the optional, developer-side helpers under `scripts/`, which are
 **not** part of the loaded plugin and are **not** shipped in the npm `files`
 list:
 
+- `scripts/setup-pricing.mjs` reads two **local** files (CC Switch's
+  `model-pricing.json` and the repo's `scripts/pricing.override.json`) and writes
+  one local file (`$DSH_HOME/usage-unified/pricing.json`). It makes no network
+  request. The plugin then reads only that generated file.
 - `scripts/report.mjs` fetches the public tokscale profile API and
   `<https://tokscale.ai>` for an opt-in profile card.
 - `scripts/setup-leaderboard.ps1` / `refresh-and-submit.ps1` install, log in to,

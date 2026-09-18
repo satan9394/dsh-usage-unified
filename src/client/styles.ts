@@ -52,6 +52,7 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-segment button { border: 0; min-width: 98px; padding: 7px 13px; border-radius: 8px; color: var(--us-muted); background: transparent; cursor: pointer; font: inherit; white-space: nowrap; }
 .us-segment button[aria-pressed="true"] { color: var(--us-text); background: var(--us-hover); box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .us-custom-range { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--us-muted); font-size: 13px; }
+.us-window { margin: -4px 0 12px; color: var(--us-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .us-custom-range input { height: 34px; padding: 0 10px; border: 1px solid var(--us-border); border-radius: 9px; background: var(--us-raised); color: var(--us-text); font: inherit; }
 .us-field { height: 38px; min-width: 150px; max-width: 260px; padding: 0 32px 0 11px; border: 1px solid transparent; border-radius: 10px; color: var(--us-text); background: var(--us-raised); font: inherit; outline: none; transition: border-color 140ms ease, box-shadow 140ms ease; }
 .us-field:hover { border-color: var(--us-border); }
