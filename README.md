@@ -169,7 +169,7 @@ disclosure, and it drops the activity heatmap for the same reason the panel did
 ```powershell
 npm install          # .npmrc sets legacy-peer-deps for the dsh peer tree
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest (67 tests)
+npm run test         # vitest (68 tests)
 npm run build        # tsdown → lib/index.js + lib/client.js
 npm run check        # all three
 npm run verify:realdata   # read-only pass over this machine's real dsh homes
