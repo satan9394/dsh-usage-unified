@@ -26,7 +26,10 @@ const valueOf = (name, fallback) => {
   return index >= 0 && args[index + 1] !== undefined ? args[index + 1] : fallback
 }
 const requested = valueOf('--range', 'all')
-const range = ['all', '30d', '7d'].includes(requested) ? requested : 'all'
+const RANGE_LABELS = { '1d': '今天', '7d': '近 7 天', '14d': '近 14 天', '30d': '近 30 天' }
+const range = ['all', ...Object.keys(RANGE_LABELS)].includes(requested) ? requested : 'all'
+/** Human label for the window, so a report header never shows a raw wire id. */
+const rangeLabel = range === 'all' ? '全部时间' : (RANGE_LABELS[range] ?? range)
 const open = args.includes('--open')
 
 const CURRENT_HOME = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh')
@@ -140,7 +143,7 @@ const sparkSvg = `<svg class="spark" viewBox="0 0 260 52" preserveAspectRatio="n
 // reconciliation — which is why those are labelled as all-time.
 const T = snapshot.totals
 const cacheDenom = T.input + T.cacheRead + T.cacheWrite
-const windowLabel = range === 'all' ? '全部时间' : range === '30d' ? '近 30 天' : '近 7 天'
+const windowLabel = rangeLabel
 const windowRange = snapshot.range.from === '' ? '全部时间' : `${snapshot.range.from} → ${snapshot.range.to}`
 
 const cardDefs = [
@@ -309,7 +312,7 @@ const html = `<!doctype html>
   .recon{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--muted2);font-size:12.5px}
   @media(max-width:760px){.cols{grid-template-columns:1fr}}
 </style><script>(function(){try{var m=localStorage.getItem('dsh-usage-theme');if(m==='light'||m==='dark'){document.documentElement.setAttribute('data-theme',m);}}catch(e){}})();</script></head><body>
-<header><div class="hwrap"><div><h1>dsh-usage-unified · 本地静态报告（${range === 'all' ? '全部时间' : range}）</h1>
+<header><div class="hwrap"><div><h1>dsh-usage-unified · 本地静态报告（${rangeLabel}）</h1>
 <div class="sub">生成于 ${esc(generated)} · home：${esc(CURRENT_HOME)} · 已索引 ${snapshot.status.indexed} 个会话 · <b>统计区间 ${esc(windowLabel)}${snapshot.range.from === '' ? '' : `（${esc(windowRange)}）`}</b> · 全时 ${esc(A.activeDays)} 个活跃日</div></div>
 <div class="themebar" role="group" aria-label="主题"><button type="button" data-th="auto" aria-pressed="true">自动</button><button type="button" data-th="light" aria-pressed="false">浅色</button><button type="button" data-th="dark" aria-pressed="false">深色</button></div>
 </div></header>

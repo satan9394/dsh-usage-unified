@@ -126,7 +126,7 @@ const elapsed = Date.now() - started
 const status = store.status
 console.log(`  status: phase=${status.phase} indexed=${status.indexed} total=${status.total} durable=${status.durable} (${elapsed} ms)`)
 
-for (const range of ['all', '30d', '7d']) {
+for (const range of ['all', '1d', '7d', '14d', '30d']) {
   const snapshot = store.snapshot({ range, scope: 'all' })
   const totals = snapshot.totals
   console.log(`  [${range}] tokens=${fmt(totals.tokens)} sessions=${totals.sessions} (+${totals.subagentSessions} sub) messages=${totals.messages} activeDays=${totals.activeDays} streak=${totals.currentStreak}/${totals.longestStreak} peakHour=${totals.peakHour}`)
