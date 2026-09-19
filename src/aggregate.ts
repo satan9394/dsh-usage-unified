@@ -23,6 +23,7 @@ import {
   type Buckets,
   type CallRecord,
   type Coverage,
+  type DayRange,
   type DayStats,
   type ModelStats,
   type ModelTally,
@@ -44,12 +45,34 @@ export function sessionKey(id: string): string {
   return id.replace(/^session-/, '')
 }
 
-/** How many days each bounded range covers, today included. */
-const RANGE_DAYS: Record<Exclude<RangeId, 'all'>, number> = { '30d': 30, '7d': 7 }
+/** How many days each fixed-width range covers, today included. */
+const RANGE_DAYS: Record<DayRange, number> = { '1d': 1, '7d': 7, '14d': 14, '30d': 30 }
 
-/** Today-inclusive day bounds for a bounded range. */
-export function rangeBounds(range: Exclude<RangeId, 'all'>, today: string): { from: string; to: string } {
+/** Today-inclusive day bounds for a fixed-width range. */
+export function rangeBounds(range: DayRange, today: string): { from: string; to: string } {
   return { from: shiftDay(today, -(RANGE_DAYS[range] - 1)), to: today }
+}
+
+/**
+ * Resolve the inclusive day bounds a request asks for.
+ *
+ * A `from` without a `to` is the start-to-now mode: the window ends at today and
+ * therefore keeps extending as the calendar moves, rather than freezing on the
+ * day the link was made. `to` on its own is rejected upstream — an upper bound
+ * with no lower one has no sane default.
+ *
+ * @param input - the requested range plus whichever explicit bounds arrived.
+ */
+export function resolveBounds(input: {
+  range: RangeId
+  today: string
+  from?: string
+  to?: string
+}): { from: string; to: string } {
+  if (input.from !== undefined) return { from: input.from, to: input.to ?? input.today }
+  // `custom` without a `from` is malformed; all-time is the closest honest answer.
+  if (input.range === 'all' || input.range === 'custom') return { from: '', to: input.today }
+  return rangeBounds(input.range, input.today)
 }
 
 /**

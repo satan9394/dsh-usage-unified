@@ -215,8 +215,16 @@ interface RangeInfo {
   timeZone: string;
   id: RangeId;
 }
-/** Requested window: a bounded strip or all-time. */
-type RangeId = 'all' | '30d' | '7d';
+/**
+ * Requested window: a fixed-width strip, a custom span, or all-time.
+ *
+ * `custom` is never a request value — the wire carries `from`/`to` for that —
+ * but it is what a snapshot reports back so the panel can label the window
+ * honestly instead of pretending a hand-picked span is "last 30 days".
+ */
+type RangeId = 'all' | '1d' | '7d' | '14d' | '30d' | 'custom';
+/** The fixed-width strips, today-inclusive, in the order the panel offers them. */
+type DayRange = '1d' | '7d' | '14d' | '30d';
 /** Task scope filter (upstream `dsh-usage-stats`). */
 type TaskScope = 'all' | 'main' | 'subtasks';
 /** Everything the dashboard renders. Produced by the host, consumed by the browser. */
@@ -586,8 +594,8 @@ declare function registerRoutes(webServer: WebServerLike, store: UnifiedIndexSto
 declare const DEFAULT_API_PATH = "/usage-unified/v1";
 //#endregion
 //#region src/aggregate.d.ts
-/** Today-inclusive day bounds for a bounded range. */
-declare function rangeBounds(range: Exclude<RangeId, 'all'>, today: string): {
+/** Today-inclusive day bounds for a fixed-width range. */
+declare function rangeBounds(range: DayRange, today: string): {
   from: string;
   to: string;
 };
@@ -996,4 +1004,4 @@ declare const Config: Schema<Config>;
  */
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DEFAULT_PEAK_SHARE, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, applyPricing, collectCalls, costOf, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, loadPricing, logPriority, lookupPrice, name, normalizeModelId, parsePricing, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
+export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DEFAULT_PEAK_SHARE, DayRange, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, applyPricing, collectCalls, costOf, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, loadPricing, logPriority, lookupPrice, name, normalizeModelId, parsePricing, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };

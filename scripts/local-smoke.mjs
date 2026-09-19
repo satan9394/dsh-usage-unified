@@ -134,6 +134,30 @@ await check('range isolation (the headline must follow the range)', async () => 
   if (zeroRows > 0) throw new Error(`${zeroRows} zero-token model rows leaked into the panel`)
   return `7d ${fmt(week.totals.tokens)} < all ${fmt(all.totals.tokens)}, all-time stable, no zero-token rows`
 })
+await check('new ranges (1d / 14d) and start-to-now', async () => {
+  const day = await getJson(`${API}/snapshot?range=1d`)
+  if (day.days.length !== 1) throw new Error(`range=1d returned ${day.days.length} days`)
+  if (day.range.id !== '1d') throw new Error(`range=1d reported id ${day.range.id}`)
+  if (day.range.from !== day.range.to) throw new Error('range=1d is not a single day')
+  if (day.hours.length !== 24) throw new Error(`range=1d returned ${day.hours.length} hours`)
+
+  const fortnight = await getJson(`${API}/snapshot?range=14d`)
+  if (fortnight.days.length !== 14) throw new Error(`range=14d returned ${fortnight.days.length} days`)
+
+  // Start-to-now carries no `to` on the wire, so the host resolves it against
+  // today — asking from today must therefore collapse to a single day.
+  const open = await getJson(`${API}/snapshot?from=${day.range.to}`)
+  if (open.range.id !== 'custom') throw new Error(`start-to-now reported id ${open.range.id}`)
+  if (open.range.to !== day.range.to) throw new Error('start-to-now did not end at today')
+  if (open.days.length !== 1) throw new Error(`start-to-now from today returned ${open.days.length} days`)
+
+  const reversed = await fetch(`${base}${API}/snapshot?from=2026-09-10&to=2026-09-01`)
+  if (reversed.status !== 400) throw new Error(`a reversed span returned ${reversed.status}`)
+  const toOnly = await fetch(`${base}${API}/snapshot?to=2026-09-10`)
+  if (toOnly.status !== 400) throw new Error(`a to-only span returned ${toOnly.status}`)
+
+  return `1d=1 day/${day.hours.length}h, 14d=14 days, start-to-now → ${open.range.to}, reversed/to-only rejected`
+})
 await check('GET /calls?range=all', async () => {
   const page = await getJson(`${API}/calls?range=all&pageSize=3`)
   if (page.items.length === 0) throw new Error('no call rows')

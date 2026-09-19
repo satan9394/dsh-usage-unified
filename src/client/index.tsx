@@ -186,11 +186,21 @@ function gapFillDays(raw: Snapshot['days'], max = 400): Snapshot['days'] {
   return out.length > max ? raw : out
 }
 
+/** One plotted point: a calendar day, or an hour of the selected day. */
+interface TrendPoint {
+  key: string
+  label: string
+  tokens: number
+  input: number
+  output: number
+  cacheRead: number
+}
+
 interface TrendSeries {
   id: 'total' | 'input' | 'output' | 'cache'
   label: string
   color: string
-  get: (day: Snapshot['days'][number]) => number
+  get: (point: TrendPoint) => number
 }
 
 /** Smooth multi-series area/line trend — the multi-line treatment the bar chart lacked. */
@@ -199,7 +209,31 @@ function SmoothTrend({ snapshot, note }: { snapshot: Snapshot; note?: ReactNode 
   const [off, setOff] = useState<Record<string, boolean>>({})
   const [hover, setHover] = useState<number | null>(null)
   const [tipAt, setTipAt] = useState<{ x: number; y: number } | null>(null)
-  const days = useMemo(() => gapFillDays(snapshot.days), [snapshot.days])
+  // A single day bucket says nothing a curve can show, so "today" plots the
+  // host's 24 hourly buckets instead. Those carry totals only (TimeBucket is
+  // {tokens, messages}), hence the single series further down.
+  const hourly = snapshot.range.id === '1d'
+  const points = useMemo<TrendPoint[]>(() => {
+    if (hourly) {
+      return snapshot.hours.map((bucket, hour) => ({
+        key: String(hour),
+        label: t('hourTick', { h: hour }),
+        tokens: bucket.tokens,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+      }))
+    }
+    return gapFillDays(snapshot.days).map(day => ({
+      key: day.date,
+      label: formatDateLabel(day.date, lang),
+      tokens: day.tokens,
+      input: day.input,
+      output: day.output,
+      cacheRead: day.cacheRead,
+    }))
+  }, [snapshot.hours, snapshot.days, hourly, lang, t])
+  const trendTitle = hourly ? t('hourlyTrend') : t('dailyTrend')
   const W = 1000
   const H = 380
   const padL = 56
@@ -209,17 +243,19 @@ function SmoothTrend({ snapshot, note }: { snapshot: Snapshot; note?: ReactNode 
   const plotW = W - padL - padR
   const plotH = H - padT - padB
   const series: TrendSeries[] = [
-    { id: 'total', label: t('trendTotal'), color: '#922bff', get: day => day.tokens },
-    { id: 'input', label: t('input'), color: '#1684ff', get: day => day.input },
-    { id: 'output', label: t('output'), color: '#219653', get: day => day.output },
-    { id: 'cache', label: t('cacheRead'), color: '#f59e0b', get: day => day.cacheRead },
+    { id: 'total', label: t('trendTotal'), color: '#922bff', get: point => point.tokens },
+    ...(hourly ? [] : [
+      { id: 'input' as const, label: t('input'), color: '#1684ff', get: (point: TrendPoint) => point.input },
+      { id: 'output' as const, label: t('output'), color: '#219653', get: (point: TrendPoint) => point.output },
+      { id: 'cache' as const, label: t('cacheRead'), color: '#f59e0b', get: (point: TrendPoint) => point.cacheRead },
+    ]),
   ]
-  const max = Math.max(1, ...days.map(day => day.tokens))
-  const xAt = (index: number): number => padL + (days.length <= 1 ? plotW / 2 : index / (days.length - 1) * plotW)
+  const max = Math.max(1, ...points.map(point => point.tokens))
+  const xAt = (index: number): number => padL + (points.length <= 1 ? plotW / 2 : index / (points.length - 1) * plotW)
   const yAt = (value: number): number => padT + plotH - value / max * plotH
-  const smooth = (get: (day: Snapshot['days'][number]) => number): string => {
-    if (days.length === 0) return ''
-    const pts = days.map((day, index) => [xAt(index), yAt(get(day))] as const)
+  const smooth = (get: (point: TrendPoint) => number): string => {
+    if (points.length === 0) return ''
+    const pts = points.map((point, index) => [xAt(index), yAt(get(point))] as const)
     let d = `M ${pts[0]![0].toFixed(1)} ${pts[0]![1].toFixed(1)}`
     for (let i = 0; i < pts.length - 1; i++) {
       const p0 = pts[i - 1] ?? pts[i]!
@@ -231,36 +267,36 @@ function SmoothTrend({ snapshot, note }: { snapshot: Snapshot; note?: ReactNode 
     return d
   }
   const totalPath = smooth(item => item.tokens)
-  const areaPath = totalPath === '' ? '' : `${totalPath} L ${xAt(days.length - 1).toFixed(1)} ${(padT + plotH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + plotH).toFixed(1)} Z`
-  const tickCount = Math.min(days.length, days.length <= 8 ? days.length : 7)
-  const ticks = Array.from({ length: tickCount }, (_, i) => days.length <= 1 ? 0 : Math.round(i / (tickCount - 1) * (days.length - 1)))
-  const hoverDay = hover === null ? undefined : days[hover]
+  const areaPath = totalPath === '' ? '' : `${totalPath} L ${xAt(points.length - 1).toFixed(1)} ${(padT + plotH).toFixed(1)} L ${xAt(0).toFixed(1)} ${(padT + plotH).toFixed(1)} Z`
+  const tickCount = Math.min(points.length, points.length <= 8 ? points.length : 7)
+  const ticks = Array.from({ length: tickCount }, (_, i) => points.length <= 1 ? 0 : Math.round(i / (tickCount - 1) * (points.length - 1)))
+  const hoverPoint = hover === null ? undefined : points[hover]
   const onMove = (event: React.MouseEvent<SVGRectElement>): void => {
     const rect = event.currentTarget.getBoundingClientRect()
-    if (rect.width === 0 || days.length === 0 || plotW === 0 || plotH === 0) return
+    if (rect.width === 0 || points.length === 0 || plotW === 0 || plotH === 0) return
     const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-    const index = Math.round(frac * (days.length - 1))
-    const value = days[index]?.tokens ?? 0
+    const index = Math.round(frac * (points.length - 1))
+    const value = points[index]?.tokens ?? 0
     setHover(index)
     setTipAt({ x: rect.left + (xAt(index) - padL) / plotW * rect.width, y: rect.top + (yAt(value) - padT) / plotH * rect.height })
   }
-  return <Panel id="trend" title={t('dailyTrend')} note={note} className="us-trend">
+  return <Panel id="trend" title={trendTitle} note={note} className="us-trend">
     <div className="us-trend-chart">
-      <svg className="us-trend-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('dailyTrend')}>
+      <svg className="us-trend-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={trendTitle}>
         <defs><linearGradient id="us-total-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#922bff" stopOpacity="0.3" /><stop offset="100%" stopColor="#922bff" stopOpacity="0.02" /></linearGradient></defs>
         {[0, 1, 2, 3, 4].map(i => { const y = padT + plotH * i / 4; return <g key={i}><line className="us-grid" x1={padL} y1={y} x2={W - padR} y2={y} /><text x={padL - 10} y={y + 4} textAnchor="end">{compact(max * (4 - i) / 4, numberLocale)}</text></g> })}
-        {ticks.map(index => { const day = days[index]; if (day === undefined) return null; return <text key={index} x={xAt(index)} y={H - 10} textAnchor={index === 0 ? 'start' : index === days.length - 1 ? 'end' : 'middle'}>{formatDateLabel(day.date, lang)}</text> })}
+        {ticks.map(index => { const point = points[index]; if (point === undefined) return null; return <text key={point.key} x={xAt(index)} y={H - 10} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'}>{point.label}</text> })}
         {areaPath !== '' && !off.total && <path d={areaPath} fill="url(#us-total-fill)" />}
         {series.map(item => off[item.id] ? null : <path key={item.id} d={smooth(item.get)} fill="none" stroke={item.color} strokeWidth={item.id === 'total' ? 2.4 : 1.7} strokeLinecap="round" strokeLinejoin="round" />)}
-        {hover !== null && hoverDay !== undefined && <>
+        {hover !== null && hoverPoint !== undefined && <>
           <line className="us-trend-hover-line" x1={xAt(hover)} y1={padT} x2={xAt(hover)} y2={padT + plotH} />
-          {series.map(item => off[item.id] ? null : <circle key={item.id} cx={xAt(hover)} cy={yAt(item.get(hoverDay))} r={3.4} fill={item.color} />)}
+          {series.map(item => off[item.id] ? null : <circle key={item.id} cx={xAt(hover)} cy={yAt(item.get(hoverPoint))} r={3.4} fill={item.color} />)}
         </>}
         <rect x={padL} y={padT} width={plotW} height={plotH} fill="transparent" onMouseMove={onMove} onMouseLeave={() => { setHover(null); setTipAt(null) }} />
       </svg>
-      {hover !== null && hoverDay !== undefined && tipAt !== null && createPortal(<div data-usage-stats className="us-trend-tip" style={{ position: 'fixed', left: Math.min(window.innerWidth - 96, Math.max(96, tipAt.x)), top: tipAt.y, transform: tipAt.y > 180 ? 'translate(-50%, -112%)' : 'translate(-50%, 16%)' }}>
-        <b>{formatDateLabel(hoverDay.date, lang)}</b>
-        {series.map(item => off[item.id] ? null : <div key={item.id}><span><i style={{ background: item.color }} />{item.label}</span><b>{compact(item.get(hoverDay!), numberLocale)}</b></div>)}
+      {hover !== null && hoverPoint !== undefined && tipAt !== null && createPortal(<div data-usage-stats className="us-trend-tip" style={{ position: 'fixed', left: Math.min(window.innerWidth - 96, Math.max(96, tipAt.x)), top: tipAt.y, transform: tipAt.y > 180 ? 'translate(-50%, -112%)' : 'translate(-50%, 16%)' }}>
+        <b>{hoverPoint.label}</b>
+        {series.map(item => off[item.id] ? null : <div key={item.id}><span><i style={{ background: item.color }} />{item.label}</span><b>{compact(item.get(hoverPoint), numberLocale)}</b></div>)}
       </div>, document.body)}
     </div>
     <div className="us-trend-legend">{series.map(item => <button key={item.id} type="button" style={{ '--us-series': item.color } as React.CSSProperties} aria-pressed={!off[item.id]} onClick={() => setOff(current => ({ ...current, [item.id]: !current[item.id] }))}><i />{item.label}</button>)}</div>
@@ -466,7 +502,7 @@ function initialMaxRecords(): number {
   }
 }
 
-function CallsPanel({ snapshot, range, scope, workspace, session, onClearSession, custom }: { snapshot: Snapshot; range: RangeId; scope: TaskScope; workspace: string; session: string; onClearSession: () => void; custom?: CustomRange | undefined }): ReactNode {
+function CallsPanel({ snapshot, range, scope, workspace, session, onClearSession, custom, tick }: { snapshot: Snapshot; range: RangeId; scope: TaskScope; workspace: string; session: string; onClearSession: () => void; custom?: CustomRange | undefined; tick: number }): ReactNode {
   const { t, numberLocale } = useLocale()
   const [page, setPage] = useState(1)
   const [model, setModel] = useState('')
@@ -497,7 +533,7 @@ function CallsPanel({ snapshot, range, scope, workspace, session, onClearSession
       .then(setData)
       .catch((reason: unknown) => { if ((reason as { name?: string }).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { abort.abort() }
-  }, [range, scope, workspace, model, provider, session, debouncedMinInput, debouncedMinOutput, page, pageSize, maxRecords, custom])
+  }, [range, scope, workspace, model, provider, session, debouncedMinInput, debouncedMinOutput, page, pageSize, maxRecords, custom, tick])
   const modelOptions = useMemo(() => ['', ...new Set((snapshot.models ?? []).map(item => item.model))], [snapshot.models])
   const providerOptions = useMemo(() => ['', ...new Set((snapshot.models ?? []).map(item => item.provider))], [snapshot.models])
   const hasFilters = model !== '' || provider !== '' || minInput !== '' || minOutput !== ''
@@ -552,10 +588,21 @@ function Footer({ snapshot }: { snapshot: Snapshot }): ReactNode {
 }
 
 const RANGE_OPTIONS: readonly { value: RangeId; label: I18nKey }[] = [
+  { value: '1d', label: 'last1Day' },
   { value: '7d', label: 'last7Days' },
+  { value: '14d', label: 'last14Days' },
   { value: '30d', label: 'last30Days' },
   { value: 'all', label: 'allRange' },
 ]
+
+/**
+ * How often the open panel re-reads the snapshot and the call table.
+ *
+ * The host re-scans its index every 30s in the background; polling twice as
+ * slowly keeps the numbers moving without making the panel the thing that keeps
+ * the machine busy.
+ */
+const AUTO_REFRESH_MS = 60_000
 
 function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: boolean }): ReactNode {
   const { t, numberLocale } = useLocale()
@@ -566,13 +613,21 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
   const [session, setSession] = useState('')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Bumped on a timer so the panels re-read the index without the user
+  // reloading; it is a dependency rather than a direct fetch call so both the
+  // snapshot and the call table keep using their existing code paths.
+  const [tick, setTick] = useState(0)
   const refresh = useCallback((signal: AbortSignal) => {
     setError(null)
     fetchSnapshot(range, scope, workspace, signal, custom ?? undefined)
       .then(setSnapshot)
       .catch((reason: unknown) => { if ((reason as { name?: string }).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)) })
-  }, [range, scope, workspace, custom])
+  }, [range, scope, workspace, custom, tick])
   useEffect(() => { const abort = new AbortController(); refresh(abort.signal); return () => { abort.abort() } }, [refresh])
+  useEffect(() => {
+    const timer = window.setInterval(() => { setTick(value => value + 1) }, AUTO_REFRESH_MS)
+    return () => { window.clearInterval(timer) }
+  }, [])
   useEffect(() => {
     if (hide === undefined) return
     const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') hide() }
@@ -627,12 +682,22 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
       <ModelPanel snapshot={snapshot} />
       <Breakdown snapshot={snapshot} />
       <SessionRanking snapshot={snapshot} onSelect={drillInto} />
-      <CallsPanel snapshot={snapshot} range={range} scope={scope} workspace={workspace} session={session} onClearSession={() => setSession('')} custom={custom ?? undefined} />
+      <CallsPanel snapshot={snapshot} range={range} scope={scope} workspace={workspace} session={session} onClearSession={() => setSession('')} custom={custom ?? undefined} tick={tick} />
       <Footer snapshot={snapshot} />
     </>
   const toolbar: ReactNode = <>
     <div className="us-range-row"><span className="us-range-label">{t('rangeLabel')}</span><div className="us-segment" aria-label={t('rangeLabel')}>{RANGE_OPTIONS.map(option => <button key={option.value} aria-pressed={custom === null && range === option.value} onClick={() => { setCustom(null); setRange(option.value) }}>{t(option.label)}</button>)}<button aria-pressed={custom !== null} onClick={() => setCustom(current => current ?? { from: localDate(-29), to: localDate() })}>{t('customRange')}</button></div></div>
-    {custom !== null && <div className="us-custom-range"><input type="date" value={custom.from} max={custom.to} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, from: value }) }} /><span>→</span><input type="date" value={custom.to} min={custom.from} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, to: value }) }} /></div>}
+    {custom !== null && <div className="us-custom-range">
+      <div className="us-segment us-custom-mode" aria-label={t('customRange')}>
+        <button aria-pressed={custom.to !== undefined} onClick={() => setCustom(current => current === null ? current : { from: current.from, to: current.to ?? localDate() })}>{t('customStartEnd')}</button>
+        <button aria-pressed={custom.to === undefined} onClick={() => setCustom(current => current === null ? current : { from: current.from })}>{t('customUntilNow')}</button>
+      </div>
+      <input type="date" value={custom.from} max={custom.to ?? localDate()} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, from: value }) }} />
+      <span>→</span>
+      {custom.to === undefined
+        ? <span className="us-until-now">{t('untilNow')}</span>
+        : <input type="date" value={custom.to} min={custom.from} aria-label={t('customRange')} onChange={event => { const value = event.target.value; if (value !== '') setCustom(current => current === null ? current : { ...current, to: value }) }} />}
+    </div>}
     <div className="us-window" aria-live="polite">{windowNote}</div>
     <div className="us-toolbar us-filterbar">
       <SelectControl label={t('workspace')} value={workspace} options={workspaceOptions} onChange={setWorkspace} />

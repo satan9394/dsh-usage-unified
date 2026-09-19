@@ -121,6 +121,56 @@ describe('transport routes', () => {
   })
 })
 
+describe('range and custom window parsing', () => {
+  it('accepts every fixed-width range', async () => {
+    const { handler, snapshotsSeen } = harness()
+    for (const range of ['1d', '7d', '14d', '30d', 'all']) {
+      const res = response()
+      await handler(request('GET', `${API}/snapshot?range=${range}`), res)
+      expect(res.state.status, range).toBe(200)
+    }
+    expect(snapshotsSeen.map(query => query['range'])).toEqual(['1d', '7d', '14d', '30d', 'all'])
+  })
+
+  it('treats a from without a to as start-to-now', async () => {
+    const { handler, snapshotsSeen } = harness()
+    const res = response()
+    await handler(request('GET', `${API}/snapshot?from=2026-08-01`), res)
+    expect(res.state.status).toBe(200)
+    expect(snapshotsSeen[0]?.['from']).toBe('2026-08-01')
+    // No `to` reaches the store, so the host resolves it against today and the
+    // window keeps extending as the calendar moves.
+    expect(snapshotsSeen[0]?.['to']).toBeUndefined()
+  })
+
+  it('keeps both bounds when both are given', async () => {
+    const { handler, snapshotsSeen } = harness()
+    const res = response()
+    await handler(request('GET', `${API}/snapshot?from=2026-08-01&to=2026-08-09`), res)
+    expect(res.state.status).toBe(200)
+    expect(snapshotsSeen[0]?.['from']).toBe('2026-08-01')
+    expect(snapshotsSeen[0]?.['to']).toBe('2026-08-09')
+  })
+
+  it('rejects a to without a from, a reversed span, and custom as a range value', async () => {
+    const { handler } = harness()
+
+    const toOnly = response()
+    await handler(request('GET', `${API}/snapshot?to=2026-08-09`), toOnly)
+    expect(toOnly.state.status).toBe(400)
+
+    const reversed = response()
+    await handler(request('GET', `${API}/snapshot?from=2026-08-09&to=2026-08-01`), reversed)
+    expect(reversed.state.status).toBe(400)
+
+    // `custom` is a reporting id, never a request value: accepting it would let
+    // a client ask for a window with no bounds at all.
+    const custom = response()
+    await handler(request('GET', `${API}/snapshot?range=custom`), custom)
+    expect(custom.state.status).toBe(400)
+  })
+})
+
 describe('loopback guard', () => {
   it('accepts IPv4/IPv6 loopback and mapped forms only', () => {
     expect(isLoopbackRequest(request('GET', '/', '127.0.0.1') as never)).toBe(true)
