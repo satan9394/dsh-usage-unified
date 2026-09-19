@@ -22,8 +22,16 @@ function messageOf(body: unknown, status: number): string {
   return `request failed with status ${status}`
 }
 
+/**
+ * Query parameters shared by every route.
+ *
+ * Day boundaries come from the host process's own timezone, which is what the
+ * snapshot reports back in `timeZone`. The browser's timezone is deliberately
+ * not sent: the host has never read it, so sending it only advertised a value
+ * that changed nothing.
+ */
 function commonParams(range: RangeId, scope: TaskScope, workspace: string): URLSearchParams {
-  const params = new URLSearchParams({ range, scope, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' })
+  const params = new URLSearchParams({ range, scope })
   if (workspace !== '') params.set('workspace', workspace)
   return params
 }
