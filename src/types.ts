@@ -228,8 +228,17 @@ export interface RangeInfo {
   id: RangeId
 }
 
-/** Requested window: a bounded strip or all-time. */
-export type RangeId = 'all' | '30d' | '7d'
+/**
+ * Requested window: a fixed-width strip, a custom span, or all-time.
+ *
+ * `custom` is never a request value — the wire carries `from`/`to` for that —
+ * but it is what a snapshot reports back so the panel can label the window
+ * honestly instead of pretending a hand-picked span is "last 30 days".
+ */
+export type RangeId = 'all' | '1d' | '7d' | '14d' | '30d' | 'custom'
+
+/** The fixed-width strips, today-inclusive, in the order the panel offers them. */
+export type DayRange = '1d' | '7d' | '14d' | '30d'
 
 /** Task scope filter (upstream `dsh-usage-stats`). */
 export type TaskScope = 'all' | 'main' | 'subtasks'

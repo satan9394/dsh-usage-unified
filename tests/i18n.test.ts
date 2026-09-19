@@ -32,4 +32,9 @@ describe('i18n dictionaries', () => {
     expect(formatHour(13, (key, vars) => translate('en', key, vars))).toBe('1 PM')
     expect(formatHour(13, (key, vars) => translate('zh', key, vars))).toBe('下午 1 点')
   })
+
+  it('formats a compact hour tick for the hourly trend axis', () => {
+    expect(translate('en', 'hourTick', { h: 9 })).toBe('9:00')
+    expect(translate('zh', 'hourTick', { h: 9 })).toBe('9时')
+  })
 })

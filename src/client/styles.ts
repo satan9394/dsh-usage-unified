@@ -44,7 +44,7 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-close:hover, .us-icon-btn:hover { color: var(--us-text); background: var(--us-hover); }
 .us-scroll { overflow: auto; scrollbar-gutter: stable; padding: 10px clamp(24px, 4vw, 58px) 40px; }
 .us-content { width: min(1180px, 100%); margin: 0 auto; }
-.us-range-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 12px; }
+.us-range-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 18px; margin: 0 0 12px; }
 .us-range-label { font-size: 16px; font-weight: 520; }
 .us-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .us-filterbar { padding: 10px; border: 1px solid color-mix(in srgb, var(--us-border) 72%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--us-surface) 70%, transparent); }
@@ -54,6 +54,9 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-custom-range { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--us-muted); font-size: 13px; }
 .us-window { margin: -4px 0 12px; color: var(--us-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .us-custom-range input { height: 34px; padding: 0 10px; border: 1px solid var(--us-border); border-radius: 9px; background: var(--us-raised); color: var(--us-text); font: inherit; }
+.us-custom-mode { margin-right: 2px; }
+.us-custom-mode button { min-width: 0; padding: 7px 11px; }
+.us-until-now { display: inline-flex; align-items: center; height: 34px; padding: 0 12px; border: 1px dashed var(--us-border); border-radius: 9px; background: var(--us-raised); }
 .us-field { height: 38px; min-width: 150px; max-width: 260px; padding: 0 32px 0 11px; border: 1px solid transparent; border-radius: 10px; color: var(--us-text); background: var(--us-raised); font: inherit; outline: none; transition: border-color 140ms ease, box-shadow 140ms ease; }
 .us-field:hover { border-color: var(--us-border); }
 .us-field:focus { border-color: color-mix(in srgb, var(--us-accent) 58%, var(--us-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--us-accent) 12%, transparent); }

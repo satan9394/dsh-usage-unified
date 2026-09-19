@@ -46,7 +46,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(payload)
 }
 
-const RANGES = new Set<RangeId>(['all', '30d', '7d'])
+// `custom` is deliberately absent: a hand-picked span arrives as from/to, never
+// as a range value, so accepting it here would let a client ask for a window
+// with no bounds.
+const RANGES = new Set<RangeId>(['all', '1d', '7d', '14d', '30d'])
 
 /**
  * Retired range ids that still answer, mapped to their replacement.
@@ -83,10 +86,14 @@ function parseCommon(url: URL): ParsedCommon {
   const rawTo = url.searchParams.get('to') ?? undefined
   if (rawFrom !== undefined && !ISO_DATE.test(rawFrom)) throw new Error('Invalid from date')
   if (rawTo !== undefined && !ISO_DATE.test(rawTo)) throw new Error('Invalid to date')
+  // An upper bound with no lower one has no sane default. A lower bound on its
+  // own is the start-to-now mode and stays open-ended on purpose.
+  if (rawTo !== undefined && rawFrom === undefined) throw new Error('A to date needs a from date')
   if (rawFrom !== undefined && rawTo !== undefined && rawFrom > rawTo) throw new Error('Invalid date range')
   const parsed: ParsedCommon = { range: range as RangeId, scope: scope as TaskScope }
   if (rawWorkspace !== undefined) parsed.workspace = rawWorkspace
-  if (rawFrom !== undefined && rawTo !== undefined) { parsed.from = rawFrom; parsed.to = rawTo }
+  if (rawFrom !== undefined) parsed.from = rawFrom
+  if (rawTo !== undefined) parsed.to = rawTo
   return parsed
 }
 
