@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createFoldState, foldEvents, type EventLike, type HeaderLike, type SessionFold } from '../src/fold.ts'
-import { aggregateSnapshot, collectCalls, rangeBounds, streaks } from '../src/aggregate.ts'
+import { aggregateSnapshot, collectCalls, rangeBounds, resolveBounds, streaks } from '../src/aggregate.ts'
 
 const TZ = 'UTC'
 const NOW = Date.parse('2026-08-10T12:00:00Z')
@@ -53,12 +53,37 @@ function buildFold(spec: SessionSpec): SessionFold {
   return state.fold
 }
 
+describe('window bounds', () => {
+  it('covers a single day for 1d and fourteen days for 14d', () => {
+    expect(rangeBounds('1d', TODAY)).toEqual({ from: TODAY, to: TODAY })
+    expect(rangeBounds('14d', TODAY)).toEqual({ from: isoDay(-13), to: TODAY })
+  })
+
+  it('resolves a from without a to against today, so the window keeps extending', () => {
+    expect(resolveBounds({ range: 'all', today: TODAY, from: '2026-07-01' })).toEqual({ from: '2026-07-01', to: TODAY })
+  })
+
+  it('resolves fixed-width ranges and all-time', () => {
+    expect(resolveBounds({ range: '1d', today: TODAY })).toEqual({ from: TODAY, to: TODAY })
+    expect(resolveBounds({ range: 'all', today: TODAY })).toEqual({ from: '', to: TODAY })
+  })
+})
+
 describe('aggregate — snapshot', () => {
   const folds = [
     buildFold({ id: 'main', cwd: 'D:\\work', calls: [[0, 100, 10], [-1, 200, 20]] }),
     buildFold({ id: 'other', cwd: 'D:\\other', calls: [[0, 50, 5]] }),
     buildFold({ id: 'sub', cwd: 'D:\\work', subtask: true, calls: [[0, 30, 3]] }),
   ]
+
+  it('reports a single day for the 1d window', () => {
+    const bounds = rangeBounds('1d', TODAY)
+    const result = aggregateSnapshot(folds, { ...bounds, timeZone: TZ, range: '1d', scope: 'all', now: NOW })
+    expect(result.days).toHaveLength(1)
+    expect(result.days[0]?.date).toBe(TODAY)
+    // Only today's calls: 100 + 50 + 30 inputs.
+    expect(result.totals.input).toBe(180)
+  })
 
   it('reports range totals and gap-fills a bounded window', () => {
     const bounds = rangeBounds('7d', TODAY)

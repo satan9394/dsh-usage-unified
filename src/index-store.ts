@@ -29,7 +29,7 @@ import {
 import {
   aggregateSnapshot,
   collectCalls,
-  rangeBounds,
+  resolveBounds,
   type CallsQuery,
   type SnapshotQuery,
 } from './aggregate.ts'
@@ -246,9 +246,15 @@ export class UnifiedIndexStore {
   snapshot(query: StoreQuery): Snapshot {
     const now = this.now()
     const today = todayKey(this.meta.tz, now)
-    const custom = query.from !== undefined && query.to !== undefined
-    const bounds = custom ? { from: query.from!, to: query.to! } : (query.range === 'all' ? { from: '', to: today } : rangeBounds(query.range, today))
-    const rangeId: RangeId = custom ? '30d' : query.range
+    // A `from` on its own is the start-to-now mode, so it is still a custom span.
+    const custom = query.from !== undefined
+    const bounds = resolveBounds({
+      range: query.range,
+      today,
+      ...(query.from === undefined ? {} : { from: query.from }),
+      ...(query.to === undefined ? {} : { to: query.to }),
+    })
+    const rangeId: RangeId = custom ? 'custom' : query.range
     const snapshotQuery: SnapshotQuery = {
       from: bounds.from,
       to: bounds.to,
@@ -311,13 +317,18 @@ export class UnifiedIndexStore {
   calls(query: StoreCallsQuery): CallsPage {
     const now = this.now()
     const today = todayKey(this.meta.tz, now)
-    const custom = query.from !== undefined && query.to !== undefined
-    const bounds = custom ? { from: query.from!, to: query.to! } : (query.range === 'all' ? { from: '', to: today } : rangeBounds(query.range, today))
+    const custom = query.from !== undefined
+    const bounds = resolveBounds({
+      range: query.range,
+      today,
+      ...(query.from === undefined ? {} : { from: query.from }),
+      ...(query.to === undefined ? {} : { to: query.to }),
+    })
     const filter: CallsQuery = {
       from: bounds.from,
       to: bounds.to,
       timeZone: this.meta.tz,
-      range: custom ? '30d' : query.range,
+      range: custom ? 'custom' : query.range,
       scope: query.scope,
       now,
       maxRecords: query.maxRecords,

@@ -28,16 +28,21 @@ function commonParams(range: RangeId, scope: TaskScope, workspace: string): URLS
   return params
 }
 
-/** Explicit inclusive day bounds for a custom range. */
+/**
+ * Inclusive lower bound for a custom range, plus an optional upper one.
+ *
+ * Omitting `to` is the start-to-now mode: the host fills in today, so the window
+ * keeps extending as days pass instead of freezing on the day it was chosen.
+ */
 export interface CustomRange {
   from: string
-  to: string
+  to?: string
 }
 
 function withCustom(params: URLSearchParams, custom?: CustomRange): URLSearchParams {
   if (custom !== undefined) {
     params.set('from', custom.from)
-    params.set('to', custom.to)
+    if (custom.to !== undefined) params.set('to', custom.to)
   }
   return params
 }
