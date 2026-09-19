@@ -42,11 +42,12 @@ The package ships its build output (`lib/index.js`, `lib/index.d.ts`,
 
 ## Evidence
 
-- `npm run check` (typecheck + 68 unit tests + build) passes.
+- `npm run check` (typecheck + 77 unit tests + build) passes.
 - `npm run verify:realdata` reads this machine's real dsh homes in **both** log
   formats and cross-checks folded tokens against an independently coded
-  reconstruction (exact match).
-- `npm run smoke:local` runs 9 HTTP assertions against real data (snapshot
-  7d/all, main scope, calls, **session ranking + drill-down**, **range isolation**, CSV, JSON, 404)
+  reconstruction (exact match), over every fixed window (1d / 7d / 14d / 30d / all).
+- `npm run smoke:local` runs 10 HTTP assertions against real data (snapshot
+  1d/7d/14d/30d/all, **start-to-now custom spans**, main scope, calls,
+  **session ranking + drill-down**, **range isolation**, CSV, JSON, 404)
   without installing anything into a DSH profile.
 - `dsh --profile web --dump-config` shows the resolved `usage-unified` row above.
