@@ -4,7 +4,7 @@ Notable changes per release, newest first. The same text is on each
 [release](https://github.com/satan9394/dsh-usage-unified/releases); this file is the
 one place to read them in order.
 
-## 0.5.0 — 2026-09-18
+## 0.5.0 — 2026-09-19
 
 - **Ranges**: added **Today** (`range=1d`) and **Last 14 days** (`range=14d`) beside the existing
   7d/30d/all, so the window set is now 1/7/14/30/all.
