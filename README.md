@@ -48,15 +48,19 @@ one index feeds one dashboard and the numbers agree everywhere:
 - **Every dsh home, both log generations.** `~/.dsh`, `~/.dsh_desktop/<version>`, `$DSH_HOME`,
   plus any extra roots you list. Reads legacy `session.jsonl[.zstd]` and versioned
   `session.v<N>.jsonl[.zstd]`, and never depends on the harness's private decoder.
-- **One range governs the whole page.** 7 days / 30 days / all time / a custom date range drives
-  the headline cards, the trend, the model panel, the session ranking, the call table and the
-  cost. Only the streaks are all-time facts, and those two cards say so.
+- **One range governs the whole page.** Today / 7 days / 14 days / 30 days / all time, plus a
+  custom span, drives the headline cards, the trend, the model panel, the session ranking, the call
+  table and the cost. A custom span has two modes: **start–end**, or **start → now**, which the
+  host resolves against today so the window keeps extending as the calendar moves. Only the streaks
+  are all-time facts, and those two cards say so.
 - **One model panel.** Per row: share of the total, the stacked input / cache-read / cache-write /
   output bar, the call count and (when priced) the cost. The long tail sits behind a toggle.
 - **Session ranking with drill-down.** Sessions ranked by tokens for the selected window; click a
   row to filter the call table to that session.
 - **Smooth multi-series trend** (total / input / output / cache read) with a legend you can toggle
-  and a hover readout, over any range including all-time.
+  and a hover readout, over any range including all-time. Today has one day bucket and so plots the
+  24 hourly buckets instead; those carry totals only, so that view offers the total series alone.
+- **The open panel refreshes itself** every 60 seconds.
 - **Call details**: time, response time, input, output, cache rate, model, thinking effort, with
   model/provider/threshold filters, pagination and a configurable row cap.
 - **CSV / JSON export** of the current window.

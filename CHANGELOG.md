@@ -4,6 +4,25 @@ Notable changes per release, newest first. The same text is on each
 [release](https://github.com/satan9394/dsh-usage-unified/releases); this file is the
 one place to read them in order.
 
+## 0.5.0 — 2026-09-18
+
+- **Ranges**: added **Today** (`range=1d`) and **Last 14 days** (`range=14d`) beside the existing
+  7d/30d/all, so the window set is now 1/7/14/30/all.
+- **Custom spans gained a second mode.** Alongside start–end, a `from` with no `to` means
+  *start → now*: the host resolves the upper bound against today, so the window keeps extending as
+  the calendar moves instead of freezing on the day it was chosen. `to` without a `from` is
+  rejected — an upper bound alone has no sane default — as is `range=custom`, which is a reporting
+  id rather than a request value.
+- **The panel no longer calls a hand-picked span "last 30 days".** A bounded span reports
+  `range.id = "custom"` instead of the placeholder it used to claim.
+- **Today plots by hour.** One day bucket says nothing a daily curve can show, so `range=1d` draws
+  the host's 24 hourly buckets. Those carry totals only (`TimeBucket` is `{tokens, messages}`), so
+  the hourly view deliberately offers the total series alone rather than drawing three empty lines.
+- **The open panel refreshes itself** every 60s; the host re-scans its index every 30s. Both the
+  snapshot and the call table re-read through their existing code paths, so nothing new can drift.
+- Tests: 77, nine of them new (window bounds, `1d` aggregation, the range/custom wire rules, hour
+  ticks). The local smoke run now covers `1d`, `14d` and start-to-now end to end.
+
 ## 0.4.2 — 2026-09-18
 
 - Both READMEs gained an **Updating** subsection. The runtime is loaded when the harness starts, so
