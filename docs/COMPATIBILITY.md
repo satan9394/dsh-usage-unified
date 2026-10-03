@@ -7,9 +7,9 @@ Declared compatibility ranges and the evidence behind them.
 | Dimension | Supported | Declared in |
 | --- | --- | --- |
 | Node.js | `^22.19.0 \|\| >=24.0.0` | `package.json` → `engines.node` |
-| DeepSeek Harness | `0.1.5-rc.1` (tested); plugin API range `^0.1.5-rc.1` | `package.json` → `peerDependencies` (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-*`) |
+| DeepSeek Harness | `0.1.5-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2` (verified); plugin API range `>=0.1.5-rc.2 <0.3.0` | `package.json` → `peerDependencies` (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-*`) |
 | React | `^18.2.0` | `peerDependencies.react` |
-| Session log format | legacy `session.jsonl[.zstd]` **and** versioned `session.v<N>.jsonl[.zstd]` | reader |
+| Session log format | legacy `session.jsonl[.zstd]` **and** versioned `session.v<N>.jsonl[.zstd]`, v0–v4 | reader (`MAX_SUPPORTED_FORMAT`) |
 | Platform | Windows / macOS / Linux (reader + host are pure Node; the optional leaderboard task uses Windows Task Scheduler) | — |
 
 DSH compatibility is declared the standard way for this ecosystem: the

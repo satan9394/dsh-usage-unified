@@ -4,6 +4,21 @@ Notable changes per release, newest first. The same text is on each
 [release](https://github.com/satan9394/dsh-usage-unified/releases); this file is the
 one place to read them in order.
 
+## 0.5.2 — 2026-10-03
+
+- **dsh 0.2.0-rc.2 sessions are counted again.** dsh 0.2.0-rc.2 raised its session format to
+  `SESSION_FORMAT_VERSION = 4`; every `session.v4.jsonl.zstd` header carries `"version":4`, and the
+  reader's `MAX_SUPPORTED_FORMAT` was still `3`, so the whole artifact was classified `foreign` and
+  dropped — the panel showed activity that stopped at the upgrade. v4 keeps the v3 event envelope
+  (`{type, seq, time, data}`) and the `assistant/message.data.usage` payload
+  (`inputTokens` / `cacheReadTokens` / `cacheWriteTokens` / `outputTokens`); the v3→v4 migration only
+  rewrites message `source.kind` and lifts tool results to first-class `role:"tool"` messages,
+  neither of which the fold reads. The reader now understands v4.
+- Compatibility evidence extended to **0.2.0-rc.1** and **0.2.0-rc.2**; the plugin API range is
+  `>=0.1.5-rc.2 <0.3.0` (dual-range peerDependencies for the 0.1.x and 0.2.x client/host modules).
+- Tests: a v4 header with usage decodes to real events and folds to a non-zero total; a newer
+  unknown version (99) is still refused.
+
 ## 0.5.0 — 2026-09-19
 
 - **Ranges**: added **Today** (`range=1d`) and **Last 14 days** (`range=14d`) beside the existing

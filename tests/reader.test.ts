@@ -11,6 +11,7 @@ function container(lines: readonly string[]): Buffer {
 }
 
 const HEADER_V3 = '{"type":"session","version":3,"id":"session-abc","createdAt":1,"cwd":"D:\\\\x"}'
+const HEADER_V4 = '{"type":"session","version":4,"id":"session-v4","createdAt":1,"cwd":"D:\\\\x","isSeeded":false,"delegationDepth":0}'
 const HEADER_V0 = '{"type":"session","version":0,"id":"abc","createdAt":1,"cwd":"D:\\\\x","origin":"subagent"}'
 
 /** A packed content record: no numeric seq, must be skipped. */
@@ -33,6 +34,14 @@ describe('session log decoder', () => {
     expect(read.foreign).toBe(false)
     expect(read.header.origin).toBe('subagent')
     expect(read.events.map(event => event.type)).toEqual(['user/message', 'assistant/message'])
+  })
+
+  it('reads a v4 log (dsh 0.2.0-rc.2) whose usage payload matches v3', () => {
+    const read = decodeArtifactBytes(container([HEADER_V4, HUMAN, MESSAGE]), true)
+    expect(read.foreign).toBe(false)
+    expect(read.header.version).toBe(4)
+    expect(read.events.map(event => event.type)).toEqual(['user/message', 'assistant/message'])
+    expect((read.events[1]?.data as { usage?: { inputTokens?: number } })?.usage?.inputTokens).toBe(10)
   })
 
   it('refuses a log written by a newer format than it understands', () => {
