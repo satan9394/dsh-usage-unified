@@ -11,7 +11,13 @@
  *    are skipped. That removes any dependency on the harness's private
  *    `decodeStorageRecord`, which has moved between releases.
  *  - the versioned backend writes `session.v<version>.jsonl[.zstd]`, whose
- *    lines are already plain events.
+ *    lines are already plain events. Format v4 (dsh 0.2.0-rc.2's
+ *    `SESSION_FORMAT_VERSION`) keeps the v3 event envelope — `{type, seq, time,
+ *    data}` — and the `assistant/message.data.usage` payload
+ *    (`inputTokens` / `cacheReadTokens` / `cacheWriteTokens` / `outputTokens`)
+ *    unchanged; the v3→v4 migration only rewrites message `source.kind` and
+ *    lifts tool results to first-class messages, neither of which the fold
+ *    reads. v4 is therefore read by the same decoder.
  *
  * Both layouts are therefore read by the same line decoder: parse a line, keep
  * it when it carries a string `type` and a numeric `seq`. The `type: 'session'`
@@ -32,8 +38,8 @@ import type { EventLike, HeaderLike } from './fold.ts'
 import type { DshHome } from './homes.ts'
 import { scanZstdFrames } from './zstd-frames.ts'
 
-/** Highest session format version this reader understands. */
-export const MAX_SUPPORTED_FORMAT = 3
+/** Highest session format version this reader understands (v4 = dsh 0.2.0-rc.2+). */
+export const MAX_SUPPORTED_FORMAT = 4
 
 /** Any canonical session log name: `session.jsonl`, `session.jsonl.zstd`, `session.v3.jsonl.zstd`. */
 const LOG_PATTERN = /^session(?:\.[0-9a-zA-Z_-]+)?\.jsonl(?:\.zstd)?$/

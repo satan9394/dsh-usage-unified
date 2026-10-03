@@ -49,6 +49,23 @@ describe('fold — token accounting', () => {
     expect(hasWork(f)).toBe(true)
   })
 
+  it('folds a v4 header (dsh 0.2.0-rc.2) with the same four buckets', () => {
+    const v4: HeaderLike = { version: 4, id: 'session-v4', createdAt: DAY, cwd: 'D:\\work', isSeeded: false, delegationDepth: 0 }
+    const { fold: f } = fold([
+      event('step/start', 0, 0, { turn: 1, step: 1 }),
+      event('assistant/message', 1, 1000, {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: 'text' }], source: { provider: 'deepseek', model: 'deepseek-chat' } },
+        usage: usage(100, 40, 20),
+      }),
+      event('step/end', 2, 1200, { turn: 1, step: 1 }),
+    ], v4)
+    expect(f.totals).toEqual({ input: 100, output: 40, cacheRead: 20, cacheWrite: 0 })
+    expect(f.steps).toBe(1)
+    expect(hasWork(f)).toBe(true)
+  })
+
   it('replaces, never accumulates, the chunk→message duplicate usage report', () => {
     const { fold: f } = fold([
       event('step/start', 0, 0, { turn: 1, step: 1 }),
