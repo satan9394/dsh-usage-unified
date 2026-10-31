@@ -24,7 +24,8 @@ export const name = 'usage-unified'
 
 export * from './types.ts'
 export { DEFAULT_API_PATH, registerRoutes } from './transport.ts'
-export { UnifiedIndexStore } from './index-store.ts'
+export { localTimeZone, UnifiedIndexStore, cacheDirFor } from './index-store.ts'
+export { IndexCache, entryFileName, isIndexEntry } from './index-cache.ts'
 export { FOLD_VERSION, createFoldState, foldEvents, hasWork, isSubtask } from './fold.ts'
 export { aggregateSnapshot, collectCalls, exportCsv, peakHourOf, rangeBounds, streaks } from './aggregate.ts'
 export { applyPricing, costOf, DEFAULT_PEAK_SHARE, loadPricing, lookupPrice, normalizeModelId, parsePricing } from './pricing.ts'
@@ -53,7 +54,14 @@ export interface Config {
   indexChunkYieldMs: number
   /** Same-origin read-only API prefix. */
   apiPath: string
-  /** Optional index cache path; defaults below `DSH_HOME`. */
+  /**
+   * Optional index cache path; defaults below `DSH_HOME`.
+   *
+   * The value names the cache *file*, kept for compatibility with the
+   * pre-0.6 single-file layout. Its extension is dropped to form the directory
+   * the per-session entries live in (`index-v1.json` -> `index-v1/`), and an
+   * existing file at the path is migrated into it once.
+   */
   cachePath?: string
   /**
    * Optional pricing table used for the cost estimate. Defaults to

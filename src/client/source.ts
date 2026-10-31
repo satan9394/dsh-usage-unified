@@ -15,11 +15,49 @@ export const API_PATH = '/usage-unified/v1'
 /** Wire schema this build understands. */
 const SUPPORTED_VERSION = 1
 
+/**
+ * How long one request may stay unanswered before the panel says so.
+ *
+ * Without this, a request that never settles leaves the panel on its spinner
+ * with no error and no retry — the state a frozen host produces. A timeout
+ * turns that into a message, and the 60 s auto-refresh retries it.
+ */
+const REQUEST_TIMEOUT_MS = 20_000
+
 function messageOf(body: unknown, status: number): string {
   if (typeof body === 'object' && body !== null && typeof (body as { error?: unknown }).error === 'string') {
     return (body as { error: string }).error
   }
   return `request failed with status ${status}`
+}
+
+/**
+ * GET one JSON body, bounded in time and honest about which side gave up.
+ *
+ * @param url - same-origin absolute path.
+ * @param signal - the caller's abort signal (range switches, unmount).
+ */
+async function fetchJson(url: string, signal: AbortSignal): Promise<unknown> {
+  const controller = new AbortController()
+  const forward = (): void => { controller.abort() }
+  if (signal.aborted) forward()
+  else signal.addEventListener('abort', forward, { once: true })
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; controller.abort() }, REQUEST_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } })
+    const body: unknown = await response.json().catch(() => undefined)
+    if (!response.ok) throw new Error(messageOf(body, response.status))
+    return body
+  } catch (error) {
+    // An abort caused by our own timer is a failure, not a cancellation: the
+    // panel must show it rather than spin forever.
+    if (timedOut) throw new Error(`no answer within ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s`)
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', forward)
+  }
 }
 
 /**
@@ -64,12 +102,7 @@ export async function fetchSnapshot(
   custom?: CustomRange,
 ): Promise<Snapshot> {
   const params = withCustom(commonParams(range, scope, workspace), custom)
-  const response = await fetch(`${API_PATH}/snapshot?${params}`, {
-    signal,
-    headers: { accept: 'application/json' },
-  })
-  const body: unknown = await response.json().catch(() => undefined)
-  if (!response.ok) throw new Error(messageOf(body, response.status))
+  const body = await fetchJson(`${API_PATH}/snapshot?${params}`, signal)
   const snapshot = body as Snapshot | undefined
   if (snapshot?.version !== SUPPORTED_VERSION) {
     throw new Error('usage-unified format mismatch — reload after the update completes')
@@ -105,9 +138,7 @@ export async function fetchCalls(request: CallsRequest, signal: AbortSignal): Pr
   if (request.session !== '') params.set('session', request.session)
   if (request.minInputTokens !== '') params.set('minInputTokens', request.minInputTokens)
   if (request.minOutputTokens !== '') params.set('minOutputTokens', request.minOutputTokens)
-  const response = await fetch(`${API_PATH}/calls?${params}`, { signal, headers: { accept: 'application/json' } })
-  const body: unknown = await response.json().catch(() => undefined)
-  if (!response.ok) throw new Error(messageOf(body, response.status))
+  const body = await fetchJson(`${API_PATH}/calls?${params}`, signal)
   return body as CallsPage
 }
 

@@ -7,24 +7,24 @@
  * sound; an inode swap, a shrink, or a backwards clock each force that one
  * session to be refolded from zero.
  *
- * Persistence is a single JSON file below `DSH_HOME` (atomic temp+rename),
- * not `ctx.storageDomain`: an optional service must never be the reason the
- * plugin — and its panel — fails to load, and a plain file is portable across
- * every dsh composition.
+ * Persistence is a directory of small per-session files below `DSH_HOME`
+ * (atomic temp+rename each), not `ctx.storageDomain`: an optional service must
+ * never be the reason the plugin — and its panel — fails to load, and a plain
+ * file is portable across every dsh composition.
  *
  * @module dsh-usage-unified/index-store
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import {
+  IndexCache,
+  type IndexEntry,
+  type IndexMeta,
+} from './index-cache.ts'
 import {
   createFoldState,
   foldEvents,
   FOLD_VERSION,
   todayKey,
-  type FoldCarry,
-  type HeaderLike,
-  type SessionFold,
 } from './fold.ts'
 import {
   aggregateSnapshot,
@@ -47,35 +47,8 @@ import type {
   TaskScope,
 } from './types.ts'
 
-/** One indexed session: the freshness witness, the fold, and its resume state. */
-export interface IndexEntry {
-  /** Absolute artifact path. */
-  path: string
-  size: number
-  mtimeMs: number
-  ino: number
-  dev: number
-  /** Byte offset just past the last complete frame consumed. */
-  cursor: number
-  header: HeaderLike
-  fold: SessionFold
-  /** Mid-log state; a tail refold without this would mis-attribute its first step. */
-  carry: FoldCarry
-}
-
-/** Index-wide facts that invalidate every entry when they change. */
-export interface IndexMeta {
-  tz: string
-  foldVersion: number
-  builtAt: number
-}
-
-/** On-disk cache envelope. */
-interface IndexCache {
-  schema: 2
-  meta: IndexMeta
-  entries: Record<string, IndexEntry>
-}
+/** Re-exported so existing importers keep one source of truth. */
+export type { IndexEntry, IndexMeta } from './index-cache.ts'
 
 /** Tunables the store needs; all sourced from the plugin config. */
 export interface IndexStoreOptions {
@@ -87,7 +60,7 @@ export interface IndexStoreOptions {
   chunkYieldMs: number
   /** The home this process is running against. */
   currentHome: string
-  /** Absolute index cache path; defaults to `$DSH_HOME/usage-unified/index-v1.json`. */
+  /** Absolute index cache path; the cache directory is derived from it. */
   cachePath: string
   /** Optional pricing file; when absent or unreadable, no cost estimate is shown. */
   pricingPath?: string
@@ -95,37 +68,22 @@ export interface IndexStoreOptions {
   cacheWriteDelayMs: number
   /** Artifacts decoded concurrently during a scan. */
   concurrency?: number
+  /** How often a cold build checkpoints finished sessions to disk, in ms. */
+  checkpointMs?: number
   /** OS home directory the discovery heuristic hangs off; injectable for tests. */
   osHome?: string
   /** Injectable clock; tests pin it. */
   now?: () => number
 }
 
+/** Cache directory for a configured cache path: `index-v1.json` -> `index-v1/`. */
+export function cacheDirFor(cachePath: string): string {
+  return /\.json$/i.test(cachePath) ? cachePath.replace(/\.json$/i, '') : `${cachePath}.cache`
+}
+
 /** Resolve the local IANA zone, falling back to UTC on a stripped-down ICU build. */
 export function localTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-}
-
-function isIndexEntry(value: unknown): value is IndexEntry {
-  if (typeof value !== 'object' || value === null) return false
-  const entry = value as Partial<IndexEntry>
-  return typeof entry.path === 'string'
-    && typeof entry.size === 'number'
-    && typeof entry.mtimeMs === 'number'
-    && typeof entry.ino === 'number'
-    && typeof entry.dev === 'number'
-    && typeof entry.cursor === 'number'
-    && typeof entry.header === 'object' && entry.header !== null
-    && typeof entry.fold === 'object' && entry.fold !== null
-    && typeof entry.carry === 'object' && entry.carry !== null
-}
-
-function isCache(value: unknown): value is IndexCache {
-  if (typeof value !== 'object' || value === null) return false
-  const cache = value as Partial<IndexCache>
-  return cache.schema === 2
-    && typeof cache.meta === 'object' && cache.meta !== null
-    && typeof cache.entries === 'object' && cache.entries !== null
 }
 
 /** Query the transport layer asks the store for. */
@@ -161,11 +119,13 @@ export class UnifiedIndexStore {
   private readonly entries = new Map<string, IndexEntry>()
   private readonly options: IndexStoreOptions
   private readonly now: () => number
+  private readonly cache: IndexCache
   private meta: IndexMeta
   private running: Promise<void> | undefined
   private loading: Promise<void> | undefined
   private writeTimer: ReturnType<typeof setTimeout> | undefined
-  private dirty = false
+  private readonly dirty = new Set<string>()
+  private readonly removed = new Set<string>()
   private disposed = false
   private homeInfos: HomeInfo[] = []
   private skippedArtifacts = 0
@@ -175,9 +135,9 @@ export class UnifiedIndexStore {
   constructor(options: IndexStoreOptions) {
     this.options = options
     this.now = options.now ?? (() => Date.now())
-    this.meta = { tz: localTimeZone(), foldVersion: FOLD_VERSION, builtAt: 0 }
+    this.meta = { tz: localTimeZone(), foldVersion: FOLD_VERSION, builtAt: 0, complete: false }
+    this.cache = new IndexCache({ dir: cacheDirFor(options.cachePath), legacyPath: options.cachePath })
     this.state = { phase: 'idle', indexed: 0, total: 0, durable: false, updatedAt: null }
-    void this.options
   }
 
   /** Current build phase and progress. */
@@ -192,28 +152,27 @@ export class UnifiedIndexStore {
     this.writeTimer = undefined
   }
 
-  /** Load a previous cache; a meta/fold mismatch discards it rather than migrating. */
+  /**
+   * Load a previous cache; a meta/fold mismatch discards it rather than migrating.
+   *
+   * Whatever a killed run managed to write is adopted as-is: it is a valid,
+   * partial index, and the next pass fills it in. That is the difference
+   * between a restart costing one session and costing the whole machine.
+   */
   async load(): Promise<void> {
     try {
-      const parsed: unknown = JSON.parse(await readFile(this.options.cachePath, 'utf8'))
-      if (!isCache(parsed)) return
-      const meta = parsed.meta
-      if (meta.tz !== this.meta.tz || meta.foldVersion !== FOLD_VERSION) return
-      let count = 0
-      for (const [key, entry] of Object.entries(parsed.entries)) {
-        if (isIndexEntry(entry)) {
-          this.entries.set(key, entry)
-          count += 1
-        }
-      }
-      this.meta = meta
+      const loaded = await this.cache.load({ tz: this.meta.tz, foldVersion: FOLD_VERSION })
+      if (loaded.meta === undefined) return
+      for (const [key, entry] of loaded.entries) this.entries.set(key, entry)
+      this.meta = loaded.meta
+      const count = this.entries.size
       this.state = {
         ...this.state,
         phase: count > 0 ? 'ready' : 'idle',
         indexed: count,
         total: count,
         durable: true,
-        updatedAt: meta.builtAt > 0 ? meta.builtAt : null,
+        updatedAt: loaded.meta.builtAt > 0 ? loaded.meta.builtAt : null,
       }
     } catch {
       // No cache yet, or an unreadable one: a full rebuild is the answer.
@@ -359,17 +318,18 @@ export class UnifiedIndexStore {
 
   private async scan(): Promise<void> {
     if (this.disposed) return
-    // Only the FIRST pass is a "build". Later passes are incremental and
-    // almost always no-ops, so reporting them as building would leave the
-    // panel showing a progress bar that never settles.
-    const firstBuild = this.state.phase !== 'ready'
-    if (firstBuild) this.state = { ...this.state, phase: 'building', indexed: 0, total: 0 }
+    // A pass is a "build" only until one has walked every session. Later passes
+    // are incremental and almost always no-ops, so reporting them as building
+    // would leave the panel showing a progress bar that never settles.
+    const building = !this.meta.complete
+    if (building) this.state = { ...this.state, phase: 'building', indexed: this.entries.size, total: 0 }
     this.skippedArtifacts = 0
     const seen = new Set<string>()
     let discovered = 0
     let processed = 0
+    let lastCheckpoint = this.now()
     const publishProgress = (): void => {
-      if (firstBuild) this.state = { ...this.state, indexed: processed, total: discovered }
+      if (building) this.state = { ...this.state, indexed: processed, total: discovered }
     }
 
     try {
@@ -403,6 +363,7 @@ export class UnifiedIndexStore {
       }
       publishProgress()
 
+      const checkpointMs = this.options.checkpointMs ?? 4_000
       let lastYield = this.now()
       let next = 0
       const lane = async (): Promise<void> => {
@@ -415,6 +376,13 @@ export class UnifiedIndexStore {
           processed += 1
           publishProgress()
           const stamp = this.now()
+          // A cold build is the one pass where finishing work is worth saving
+          // before the walk ends: a restart then costs the last few seconds
+          // instead of the whole machine.
+          if (building && stamp - lastCheckpoint >= checkpointMs) {
+            lastCheckpoint = stamp
+            await this.flushEntries()
+          }
           if (stamp - lastYield >= this.options.chunkYieldMs) {
             lastYield = stamp
             await new Promise<void>(resolve => { setImmediate(resolve) })
@@ -427,10 +395,11 @@ export class UnifiedIndexStore {
       for (const key of [...this.entries.keys()]) {
         if (seen.has(key)) continue
         this.entries.delete(key)
-        this.dirty = true
+        this.removed.add(key)
       }
+      await this.cache.prune(seen)
 
-      this.meta = { ...this.meta, builtAt: this.now() }
+      this.meta = { ...this.meta, builtAt: this.now(), complete: true }
       this.state = {
         ...this.state,
         phase: 'ready',
@@ -439,12 +408,8 @@ export class UnifiedIndexStore {
         durable: true,
         updatedAt: this.meta.builtAt,
       }
-      // A steady-state pass touches nothing, and rewriting a ~20 MB cache every
-      // refresh interval is pure disk churn; persist only when the index moved.
-      if (this.dirty) {
-        this.dirty = false
-        this.scheduleWrite()
-      }
+      // A steady-state pass touches nothing, so persist only when the index moved.
+      if (this.dirty.size > 0 || this.removed.size > 0 || building) this.scheduleWrite()
     } catch (error) {
       // A failed incremental pass keeps whatever the last good one produced;
       // the panel shows the message beside real numbers rather than instead of them.
@@ -481,12 +446,14 @@ export class UnifiedIndexStore {
       this.skippedArtifacts += 1
       if (previous !== undefined) {
         this.entries.delete(artifact.key)
-        this.dirty = true
+        this.dirty.delete(artifact.key)
+        this.removed.add(artifact.key)
       }
       return
     }
     this.entries.set(artifact.key, updated)
-    this.dirty = true
+    this.dirty.add(artifact.key)
+    this.removed.delete(artifact.key)
   }
 
   private async foldArtifact(
@@ -527,20 +494,39 @@ export class UnifiedIndexStore {
     if (this.disposed || this.writeTimer !== undefined) return
     this.writeTimer = setTimeout(() => {
       this.writeTimer = undefined
-      void this.persist().catch(() => { /* durability is best-effort */ })
+      void this.flushEntries()
     }, this.options.cacheWriteDelayMs)
     this.writeTimer.unref?.()
   }
 
-  private async persist(): Promise<void> {
-    if (this.disposed) return
-    const entries: Record<string, IndexEntry> = {}
-    for (const [key, entry] of this.entries) entries[key] = entry
-    const cache: IndexCache = { schema: 2, meta: this.meta, entries }
-    const temporary = `${this.options.cachePath}.${process.pid}.tmp`
-    await mkdir(dirname(this.options.cachePath), { recursive: true })
-    await writeFile(temporary, JSON.stringify(cache), { encoding: 'utf8', mode: 0o600 })
-    await rename(temporary, this.options.cachePath)
+  /**
+   * Write the sessions that moved, then the meta.
+   *
+   * Entries are independent files, so this touches one file per changed
+   * session instead of re-serializing the whole index — and whatever lands
+   * before a kill is usable by the next start.
+   *
+   * @returns true when the write completed.
+   */
+  private async flushEntries(): Promise<boolean> {
+    if (this.disposed) return false
+    const keys = [...this.dirty]
+    const removed = [...this.removed]
+    this.dirty.clear()
+    this.removed.clear()
+    try {
+      await Promise.all(removed.map(key => this.cache.remove(key)))
+      await Promise.all(keys.map(key => {
+        const entry = this.entries.get(key)
+        return entry === undefined ? undefined : this.cache.write(key, entry)
+      }))
+      await this.cache.writeMeta(this.meta)
+      this.state = { ...this.state, durable: true }
+      return true
+    } catch {
+      // Durability is best-effort; the in-memory index is still correct.
+      return false
+    }
   }
 
   /** Flush the index immediately; used on host disposal. */
@@ -549,6 +535,7 @@ export class UnifiedIndexStore {
       clearTimeout(this.writeTimer)
       this.writeTimer = undefined
     }
-    await this.persist().catch(() => { /* best-effort */ })
+    await this.flushEntries()
+    await this.cache.settle()
   }
 }

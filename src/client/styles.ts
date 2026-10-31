@@ -140,6 +140,10 @@ body[data-ds-dark-theme] [data-usage-stats] {
 .us-break-item span { display: block; color: var(--us-muted); font-size: 13px; margin-bottom: 5px; }
 .us-break-item strong { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .us-state { min-height: 420px; display: grid; place-items: center; color: var(--us-muted); text-align: center; }
+.us-build { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--us-border); border-radius: 12px; background: var(--us-surface); color: var(--us-text); }
+.us-build .us-spinner { width: 16px; height: 16px; margin: 0; border-width: 2px; flex: none; }
+.us-build p { margin: 0; font-size: 13px; }
+.us-build small { display: block; margin-top: 2px; color: var(--us-muted); font-size: 12px; }
 .us-spinner { width: 28px; height: 28px; margin: 0 auto 14px; border: 3px solid var(--us-border); border-top-color: var(--us-accent); border-radius: 50%; animation: us-spin .8s linear infinite; }
 @keyframes us-spin { to { transform: rotate(360deg); } }
 @keyframes us-enter { from { opacity: 0; transform: translateY(4px); } }

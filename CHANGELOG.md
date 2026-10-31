@@ -4,6 +4,46 @@ Notable changes per release, newest first. The same text is on each
 [release](https://github.com/satan9394/dsh-usage-unified/releases); this file is the
 one place to read them in order.
 
+## 0.6.0 — 2026-10-30
+
+- **dsh 0.2.1-rc.5 verified.** The session format is still v4
+  (`@deepseek-ai/dsh-session-format-catalog` reports `currentVersion: 4`, and no
+  v4→v5 migration package exists), and `assistant/message.data.usage` still
+  carries `inputTokens` / `cacheReadTokens` / `cacheWriteTokens` / `outputTokens`.
+  `dsh.compatibility.dshReleases` gained `0.2.1-rc.5`, and the dev dependencies
+  moved to the 0.2.1 line; the declared plugin API range is unchanged
+  (`>=0.1.5-rc.2 <0.3.0`).
+- **A cold build is ~40% faster, and no longer blocks the panel.** Measured on
+  this machine's real history (1,404 logs, 797 MB compressed, 1.09 M zstd
+  frames): 50 s → 31 s. Two changes carry it:
+  - one `zstdDecompressSync` call over the whole frame run instead of one call
+    per frame — 26.4 s → 6.6 s for identical output. Node 22 stops at the first
+    frame, so the capability is probed once with two frames and the frame walk
+    stays as the fallback;
+  - records that carry no `seq` (streaming deltas) are skipped before
+    `JSON.parse` instead of after it.
+- **The index cache is one file per session.** It used to be a single ~24 MB
+  JSON rewritten on every change: a 24 MB write every refresh cycle while one
+  session was live, and the whole build lost whenever the harness restarted
+  mid-write. The leftover `index-v1.json.<pid>.tmp` files in a real
+  `DSH_HOME` are exactly that, and each one cost the next start a full rebuild.
+  Now a session's ~17 KB file lands as soon as it is folded, a steady-state pass
+  rewrites one file instead of 1,404, and a cold build checkpoints every 4 s so
+  a restart costs seconds. The pre-0.6 single file is migrated on first load and
+  kept beside the directory as `index-v1.json.migrated`.
+- **Progress instead of an endless spinner.** The host already answered while
+  building; the panel now says so — `正在建立本地增量索引 · 340/1404（24%）` with
+  the numbers that are already indexed, and the call table keeps showing partial
+  rows while the fold finishes.
+- **Client requests time out after 20 s.** A request that never settles used to
+  leave the panel on a spinner with no error; it now reports the failure, and
+  the 60 s auto-refresh retries it.
+- Token totals are unchanged: the same real machine folds to
+  18,024,754,900 tokens before and after this release.
+- Tests: 85 (six new — durable round trip, cache adoption on restart, tail
+  refold, legacy migration, pruning a vanished session, and a long
+  concatenated container that must decode every frame).
+
 ## 0.5.2 — 2026-10-03
 
 - **dsh 0.2.0-rc.2 sessions are counted again.** dsh 0.2.0-rc.2 raised its session format to

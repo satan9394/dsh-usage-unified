@@ -1,6 +1,6 @@
 {
   "name": "dsh-usage-unified",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Unified DeepSeek Harness usage statistics — machine-wide token accounting across every dsh home, with trends, a custom date range that governs every panel, one model panel (share + four-bucket split + call count), a session ranking with call drill-down, CSV/JSON export and an optional local cost estimate that models DeepSeek's off-peak/peak pricing.",
   "license": "MIT",
   "author": "dsh-usage-unified contributors",
@@ -55,7 +55,8 @@
       "dshReleases": {
         "0.1.5-rc.2": "compatible",
         "0.2.0-rc.1": "compatible",
-        "0.2.0-rc.2": "compatible"
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.5": "compatible"
       }
     }
   },
@@ -101,15 +102,15 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-client-locale": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-layout": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-sidebar": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-home-paths": "^0.2.0-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "^0.2.0-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.4",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-client-locale": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-layout": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-sidebar": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-home-paths": "^0.2.1-rc.5",
+    "@deepseek-ai/dsh-host-webserver": "^0.2.1-rc.5",
+    "@deepseek-ai/schemastery": "^3.18.5",
     "@types/node": "^22.20.5",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.1",

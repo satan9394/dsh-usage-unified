@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { CallRecord, CallsPage, ModelStats, RangeId, SessionStats, Snapshot, TaskScope } from '../types.ts'
+import type { CallRecord, CallsPage, IndexStatus, ModelStats, RangeId, SessionStats, Snapshot, TaskScope } from '../types.ts'
 import type { ClientContextLike } from './runtime.d.ts'
 import { formatDateLabel, formatHour, installLocale, NS, useLocale, type I18nKey } from './i18n.ts'
 import { exportUrl, fetchCalls, fetchSnapshot, type CustomRange } from './source.ts'
@@ -542,7 +542,7 @@ function CallsPanel({ snapshot, range, scope, workspace, session, onClearSession
   }
   const content: ReactNode = error ? <div className="us-state"><div><p>{t('callsLoadError')}</p><small>{error}</small></div></div>
     : data === null ? <div className="us-state"><div><div className="us-spinner" />{t('callsLoading')}</div></div>
-    : !data.indexReady ? <div className="us-state">{t('callsIndexing')}</div>
+    : !data.indexReady && data.items.length === 0 ? <div className="us-state">{t('callsIndexing')}</div>
     : data.items.length === 0 ? <div className="us-state">{t('callsEmpty')}</div>
     : <div className="us-calls-wrap"><table className="us-calls-table" aria-label={t('callsTitle')}><colgroup><col className="us-col-time" /><col className="us-col-duration" /><col className="us-col-token" /><col className="us-col-token" /><col className="us-col-cache" /><col className="us-col-model" /><col className="us-col-effort" /></colgroup><thead><tr><th>{t('colTime')}</th><th className="us-number">{t('colDuration')}</th><th className="us-number">{t('colInput')}</th><th className="us-number">{t('colOutput')}</th><th className="us-number">{t('colCacheRate')}</th><th>{t('colModel')}</th><th className="us-center">{t('colEffort')}</th></tr></thead><tbody>{data.items.map(item => <tr key={item.key}><td className="us-calls-time" title={formatExactTime(item.time, numberLocale)}>{formatCallTime(item.time)}</td><td className="us-number">{formatCallDuration(item.durationMs, t)}</td><td className="us-number" title={formatExactTokens(item.tokens.input, numberLocale)}>{formatCallTokens(item.tokens.input, numberLocale)}</td><td className="us-number" title={formatExactTokens(item.tokens.output, numberLocale)}>{formatCallTokens(item.tokens.output, numberLocale)}</td><td className="us-number">{callCachePercent(item.tokens, t)}</td><td className="us-calls-model" title={`${item.provider}/${item.model}`}>{item.model}{item.subtask && <span className="us-subnote">sub</span>}</td><td className={item.effort === null ? 'us-calls-effort us-center is-empty' : 'us-calls-effort us-center'}>{formatEffort(item.effort, t)}</td></tr>)}</tbody></table><div className="us-calls-pager"><span>{t('pageInfo', { start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, data.total), total: data.total })}</span><div className="us-calls-page-buttons"><button type="button" aria-label={t('prevPage')} title={t('prevPage')} disabled={page <= 1} onClick={() => setPage(page - 1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m9.5 4-4 4 4 4" /></svg></button><button type="button" aria-label={t('nextPage')} title={t('nextPage')} disabled={!data.hasMore} onClick={() => setPage(page + 1)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6.5 4 4 4-4 4" /></svg></button></div></div></div>
   return <Panel id="calls" title={t('callsTitle')} note={t('callsNote')} className="us-panel-calls">
@@ -604,6 +604,26 @@ const RANGE_OPTIONS: readonly { value: RangeId; label: I18nKey }[] = [
  */
 const AUTO_REFRESH_MS = 60_000
 
+/**
+ * Progress for a first pass that has not finished yet.
+ *
+ * The index answers while it builds, so the panel is never blocked on the fold
+ * — but silence still reads as "stuck", which is exactly how a cold build of
+ * this machine's ~1,400 logs used to feel. This says how far it has got and
+ * that the numbers below are already usable.
+ */
+function BuildBanner({ status }: { status: IndexStatus }): ReactNode {
+  const { t } = useLocale()
+  if (status.phase !== 'building') return null
+  const total = status.total
+  const done = status.indexed
+  const percent = total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0
+  return <div className="us-build" role="status" aria-live="polite">
+    <div className="us-spinner" />
+    <div><p>{t('buildingProgress', { done, total, percent })}</p><small>{t('buildingHint')}</small></div>
+  </div>
+}
+
 function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: boolean }): ReactNode {
   const { t, numberLocale } = useLocale()
   const [range, setRange] = useState<RangeId>('30d')
@@ -663,6 +683,7 @@ function Dashboard({ hide, embedded = false }: { hide?: () => void; embedded?: b
   const body: ReactNode = error ? <div className="us-state"><div><p>{t('loadError')}</p><small>{error}</small></div></div>
     : snapshot === null ? <div className="us-state"><div><div className="us-spinner" />{t('loading')}</div></div>
     : <>
+      <BuildBanner status={snapshot.status} />
       <div className="us-cards">
         <Card icon="tokens" label={t('tokensUsage')} value={compact(snapshot.totals.tokens, numberLocale)} detail={t('inputOutputDetail', { input: compact(snapshot.totals.input, numberLocale), output: compact(snapshot.totals.output, numberLocale) })} accent="#1684ff" hero spark={sparkline} />
         <Card icon="chat" label={t('sessions')} value={snapshot.totals.sessions} detail={snapshot.totals.subagentSessions > 0 ? t('subagentNote', { n: snapshot.totals.subagentSessions }) : undefined} accent="#9368ef" />

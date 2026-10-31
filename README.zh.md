@@ -112,7 +112,7 @@ dsh plugin --profile web add E:\path\to\dsh-usage-unified
 | `indexChunkYieldMs` | `number` | `16` | 扫描时的协作让出间隔，保证冷启动期间仍可响应。 |
 | `indexConcurrency` | `number` | `4` | 并行解码的会话数。实测：2–4 最佳，8 以上反而退化。 |
 | `apiPath` | `string` | `/usage-unified/v1` | 同源只读 API 前缀。 |
-| `cachePath` | `string` | `$DSH_HOME/usage-unified/index-v1.json` | 索引缓存位置。 |
+| `cachePath` | `string` | `$DSH_HOME/usage-unified/index-v1.json` | 索引缓存位置。去掉扩展名后的目录（`index-v1/`）存放每个会话的小文件；已存在的单文件会在首次加载时自动迁移，并保留为 `index-v1.json.migrated`。 |
 | `pricingPath` | `string` | `$DSH_HOME/usage-unified/pricing.json` | 成本表。文件不存在则不显示成本。 |
 | `cacheWriteDelayMs` | `number` | `1000` | 索引写盘的防抖延迟。**只在索引真的变化时才写。** |
 
@@ -122,8 +122,9 @@ dsh plugin --profile web add E:\path\to\dsh-usage-unified
 
 - **读取**——所有已发现 dsh home 下的会话日志，以及（用于成本估算的）一个可选定价文件。只读：
   从不写入会话，也不写入其它 home。
-- **写入**——**只有一个文件**：`$DSH_HOME/usage-unified/index-v1.json`，原子写（临时文件 + rename）、
-  权限 `0600`，且仅在索引发生变化时写。
+- **写入**——`$DSH_HOME/usage-unified/` 下的索引缓存：每个会话一个小文件（`index-v1/entries/`）加
+  `meta.json`，逐个原子写（临时文件 + rename）、权限 `0600`，且只写真正变化的会话。不改动磁盘上的
+  其它任何东西。
 - **网络**——**零**。运行时不发任何外部请求、不自行开监听套接字。它只在 harness 提供的 web server 上
   注册一条路由，且**仅响应回环调用**（其它一律 `403`）。其导入仅 `node:fs/promises`、`node:path`、
   `node:os`、`node:zlib` 与 `@deepseek-ai/*`。
@@ -166,7 +167,8 @@ npm run pricing:setup     # 写 $DSH_HOME/usage-unified/pricing.json
 - **「天」按宿主进程时区切**，在建立索引那一刻定死。若机器系统时区与使用者所在时区不同，「今天」指的是
   **那个时区**的今天；改时区会触发全量重建。
 - **调用明细有上限**，由可配置的明细上限控制（默认 1,000，最大 10,000）。
-- **冷启动建立索引需要数分钟**（本机约 1,380 个日志文件、约 790MB 压缩日志）。面板会渲染部分结果并报告进度。
+- **冷启动是最慢的一段**（本机约 1,400 个日志文件、约 800MB 压缩日志、约 31 秒）。建立期间面板照常
+  渲染已索引的部分并显示进度；且每几秒把已完成的会话落盘，重启后接着往下走而不是从头再来。
 - **活跃热力图已移除**——它与趋势图重复。
 
 ## 架构
@@ -180,7 +182,8 @@ src/
   fold.ts           纯函数可续算折叠：会话 → 总量、按天/小时切片、调用
   aggregate.ts      快照 + 会话排行 + 调用行 + 连续天数/高峰时段 + CSV
   pricing.ts        可选定价表：读取、按模型 id 匹配、成本与覆盖度
-  index-store.ts    增量索引（并行解码），缓存在 DSH_HOME 下的文件
+  index-store.ts    增量索引（并行解码）、进度与断点续建
+  index-cache.ts    每个会话一个小文件的落盘缓存，外加 meta.json
   transport.ts      /snapshot、/calls（含 ?session= 下钻）、/export.*（仅回环）
   types.ts          两半共享的传输契约
   client/
@@ -198,7 +201,7 @@ src/
 - **每个 `(turn, step)` 一条调用。** 用量每步上报两次（流式块 + 最终消息），折叠采用**替换而非累加**，
   并为明细表保留每步一条；compaction 摘要单独成条。
 - **文件缓存，不依赖可选服务。** 索引写入 `$DSH_HOME` 下的普通文件而非 `ctx.storageDomain`，
-  所以「可选服务缺失」永远不会导致面板加载不出来。
+  所以「可选服务缺失」永远不会导致面板加载不出来。一个会话一个文件，中途被杀最多丢没跑完的那几个。
 - **不猜数字。** 未定价的模型标为未定价；覆盖度、重试步骤、跳过日志一律披露。
 
 ## 开发
@@ -234,8 +237,9 @@ npm run report:30d        # 同上，近 30 天
 - 插件 API：`@deepseek-ai/*` 的 `peerDependencies`（当前 `^0.1.5-rc.1`）；Node `^22.19.0 || >=24.0.0`。
 - 会话日志：旧格式 `session.jsonl[.zstd]` **与**版本化 `session.v<N>.jsonl[.zstd]`。
 - 平台：Windows / macOS / Linux。仅可选的排行榜任务使用 Windows 计划任务，其余脚本跨平台。
-- `package.json` 的 `dsh.compatibility` **只声明实际验证过的版本**：`>=0.1.5-rc.2 <0.1.6`，且
-  `dshReleases["0.1.5-rc.2"] = "compatible"`。刻意不用 `^`——那会顺带声称 rc.3+ 也兼容，而它们没被验证过。
+- `package.json` 的 `dsh.compatibility` **只声明实际验证过的版本**：范围 `>=0.1.5-rc.2 <0.3.0`，
+  已逐版登记在 `dshReleases` —— 目前是 `0.1.5-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-rc.5`。
+  刻意不用裸 `^`——那会顺带声称没测过的版本也兼容。
 
 各条声明背后的证据见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)。
 

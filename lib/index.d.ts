@@ -460,6 +460,110 @@ declare function foldEvents(state: FoldState, events: readonly EventLike[], opti
 /** Whether a session did anything worth counting as a session. */
 declare function hasWork(fold: SessionFold): boolean;
 //#endregion
+//#region src/index-cache.d.ts
+/** One indexed session: the freshness witness, the fold, and its resume state. */
+interface IndexEntry {
+  /** Absolute artifact path. */
+  path: string;
+  size: number;
+  mtimeMs: number;
+  ino: number;
+  dev: number;
+  /** Byte offset just past the last complete frame consumed. */
+  cursor: number;
+  header: HeaderLike;
+  fold: SessionFold;
+  /** Mid-log state; a tail refold without this would mis-attribute its first step. */
+  carry: FoldCarry;
+}
+/** Index-wide facts that invalidate every entry when they change. */
+interface IndexMeta {
+  tz: string;
+  foldVersion: number;
+  /** Epoch ms of the last pass that reached the end of the walk. */
+  builtAt: number;
+  /**
+   * False until one pass has folded every session it discovered.
+   *
+   * A partial index is served immediately — the panel shows real numbers that
+   * keep growing — so the flag is what tells a later start to keep filling
+   * rather than treating the cache as finished.
+   */
+  complete: boolean;
+}
+/** Validate one persisted entry; a half-written or hand-edited file is dropped. */
+declare function isIndexEntry(value: unknown): value is IndexEntry;
+/** Stable file name for one index key. */
+declare function entryFileName(key: string): string;
+/** Result of loading the cache. */
+interface LoadedCache {
+  /** The persisted meta when the cache directory was usable. */
+  meta?: IndexMeta;
+  entries: Map<string, IndexEntry>;
+  /** True when a legacy single-file cache was adopted into the new layout. */
+  migrated: boolean;
+}
+/** Options for {@link IndexCache}. */
+interface IndexCacheOptions {
+  /** Cache directory holding `meta.json` and `entries/`. */
+  dir: string;
+  /** Pre-0.6 single-file cache, migrated on first load when present. */
+  legacyPath?: string;
+}
+/**
+ * Owns the on-disk cache: load, per-entry write, meta write, prune.
+ *
+ * Writes are queued one behind another and never throw: durability is
+ * best-effort, and losing a cache file must never cost the caller a scan.
+ */
+declare class IndexCache {
+  private readonly dir;
+  private readonly legacyPath;
+  /** Files read at load time, so pruning only ever touches our own cache. */
+  private readonly filesByKey;
+  private queue;
+  constructor(options: IndexCacheOptions);
+  /** Directory holding the per-session files. */
+  get entriesDir(): string;
+  /** Metadata file. */
+  get metaPath(): string;
+  /**
+   * Load whatever the last run managed to persist.
+   *
+   * @param expected - the timezone and fold version this build requires; a
+   * mismatch discards the entries rather than migrating them, because the fold
+   * output shape is what changed.
+   */
+  load(expected: {
+    tz: string;
+    foldVersion: number;
+  }): Promise<LoadedCache>;
+  private loadCurrent;
+  private readEntries;
+  private loadLegacy;
+  /** Persist one folded session. Serialized behind the previous write. */
+  write(key: string, entry: IndexEntry): Promise<void>;
+  /** Write several sessions; used for adoption and for a checkpoint flush. */
+  writeMany(entries: ReadonlyMap<string, IndexEntry>): Promise<void>;
+  /** Remove one session's file, e.g. when its log disappeared or went foreign. */
+  remove(key: string): Promise<void>;
+  /**
+   * Drop cache files for sessions that no longer exist.
+   *
+   * Only files this instance loaded are candidates, so a second dsh home
+   * sharing the directory is never pruned on a coincidence.
+   *
+   * @param keep - keys still present on disk.
+   */
+  prune(keep: ReadonlySet<string>): Promise<void>;
+  /** Persist the index-wide facts. */
+  writeMeta(meta: IndexMeta): Promise<void>;
+  /** Resolve once everything queued so far has been written. */
+  settle(): Promise<void>;
+  private enqueue;
+  private writeFileAtomic;
+}
+//#endregion
 //#region src/index-store.d.ts
 /** Tunables the store needs; all sourced from the plugin config. */
 interface IndexStoreOptions {
@@ -471,7 +575,7 @@ interface IndexStoreOptions {
   chunkYieldMs: number;
   /** The home this process is running against. */
   currentHome: string;
-  /** Absolute index cache path; defaults to `$DSH_HOME/usage-unified/index-v1.json`. */
+  /** Absolute index cache path; the cache directory is derived from it. */
   cachePath: string;
   /** Optional pricing file; when absent or unreadable, no cost estimate is shown. */
   pricingPath?: string;
@@ -479,11 +583,17 @@ interface IndexStoreOptions {
   cacheWriteDelayMs: number;
   /** Artifacts decoded concurrently during a scan. */
   concurrency?: number;
+  /** How often a cold build checkpoints finished sessions to disk, in ms. */
+  checkpointMs?: number;
   /** OS home directory the discovery heuristic hangs off; injectable for tests. */
   osHome?: string;
   /** Injectable clock; tests pin it. */
   now?: () => number;
 }
+/** Cache directory for a configured cache path: `index-v1.json` -> `index-v1/`. */
+declare function cacheDirFor(cachePath: string): string;
+/** Resolve the local IANA zone, falling back to UTC on a stripped-down ICU build. */
+declare function localTimeZone(): string;
 /** Query the transport layer asks the store for. */
 interface StoreQuery {
   range: RangeId;
@@ -515,11 +625,13 @@ declare class UnifiedIndexStore {
   private readonly entries;
   private readonly options;
   private readonly now;
+  private readonly cache;
   private meta;
   private running;
   private loading;
   private writeTimer;
-  private dirty;
+  private readonly dirty;
+  private readonly removed;
   private disposed;
   private homeInfos;
   private skippedArtifacts;
@@ -530,7 +642,13 @@ declare class UnifiedIndexStore {
   get status(): IndexStatus;
   /** Stop the in-flight scan and refuse further work. */
   dispose(): void;
-  /** Load a previous cache; a meta/fold mismatch discards it rather than migrating. */
+  /**
+   * Load a previous cache; a meta/fold mismatch discards it rather than migrating.
+   *
+   * Whatever a killed run managed to write is adopted as-is: it is a valid,
+   * partial index, and the next pass fills it in. That is the difference
+   * between a restart costing one session and costing the whole machine.
+   */
   load(): Promise<void>;
   /**
    * Bring the index up to date.
@@ -567,7 +685,16 @@ declare class UnifiedIndexStore {
   private foldOne;
   private foldArtifact;
   private scheduleWrite;
-  private persist;
+  /**
+   * Write the sessions that moved, then the meta.
+   *
+   * Entries are independent files, so this touches one file per changed
+   * session instead of re-serializing the whole index — and whatever lands
+   * before a kill is usable by the next start.
+   *
+   * @returns true when the write completed.
+   */
+  private flushEntries;
   /** Flush the index immediately; used on host disposal. */
   flush(): Promise<void>;
 }
@@ -886,18 +1013,6 @@ interface ArtifactRead {
   /** True when the header's format version is newer than this build can read. */
   foreign: boolean;
 }
-/**
- * Decode artifact bytes into session events.
- *
- * @param bytes - the whole file, or the tail slice starting at `fromCursor`.
- * @param compressed - whether the path ends in `.zstd`.
- * @param fromCursor - byte offset `bytes` begins at; 0 for a full read.
- * @param cachedHeader - required when `fromCursor > 0`; the header line lives
- * in the first frame and is therefore absent from any tail slice.
- * @returns the decoded events plus the next resume cursor.
- * @throws when the container is structurally corrupt, or a full read finds no
- * header line — both are conditions the caller must see, not paper over.
- */
 declare function decodeArtifactBytes(bytes: Buffer, compressed: boolean, fromCursor?: number, cachedHeader?: HeaderLike): ArtifactRead;
 /**
  * Read an artifact, optionally resuming from a stored cursor.
@@ -905,6 +1020,10 @@ declare function decodeArtifactBytes(bytes: Buffer, compressed: boolean, fromCur
  * Resuming is sound because container frames are independently decodable, so
  * a tail slice starting at a frame boundary decodes to exactly the frames
  * appended since.
+ *
+ * Compressed logs decode in bounded groups with a yield between them: a single
+ * 30 MB artifact would otherwise hold the host's event loop (and therefore the
+ * panel) for a second at a time.
  *
  * @param path - absolute artifact path.
  * @param fromCursor - byte offset to resume from; 0 reads everything.
@@ -983,7 +1102,14 @@ interface Config {
   indexChunkYieldMs: number;
   /** Same-origin read-only API prefix. */
   apiPath: string;
-  /** Optional index cache path; defaults below `DSH_HOME`. */
+  /**
+   * Optional index cache path; defaults below `DSH_HOME`.
+   *
+   * The value names the cache *file*, kept for compatibility with the
+   * pre-0.6 single-file layout. Its extension is dropped to form the directory
+   * the per-session entries live in (`index-v1.json` -> `index-v1/`), and an
+   * existing file at the path is migrated into it once.
+   */
   cachePath?: string;
   /**
    * Optional pricing table used for the cost estimate. Defaults to
@@ -1004,4 +1130,4 @@ declare const Config: Schema<Config>;
  */
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DEFAULT_PEAK_SHARE, DayRange, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, applyPricing, collectCalls, costOf, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, loadPricing, logPriority, lookupPrice, name, normalizeModelId, parsePricing, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
+export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DEFAULT_PEAK_SHARE, DayRange, DayStats, FOLD_VERSION, HomeInfo, IndexCache, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, applyPricing, cacheDirFor, collectCalls, costOf, createFoldState, decodeArtifactBytes, discoverDshHomes, entryFileName, exportCsv, foldEvents, hasWork, isIndexEntry, isSubtask, loadPricing, localTimeZone, logPriority, lookupPrice, name, normalizeModelId, parsePricing, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };

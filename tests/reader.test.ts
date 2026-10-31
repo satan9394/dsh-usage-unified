@@ -44,6 +44,17 @@ describe('session log decoder', () => {
     expect((read.events[1]?.data as { usage?: { inputTokens?: number } })?.usage?.inputTokens).toBe(10)
   })
 
+  it('decodes every frame of a long concatenated container in one pass', () => {
+    // One zstd call over the whole run is the fast path; the probe that picks
+    // it must never make the reader stop at the first frame.
+    const events = Array.from({ length: 60 }, (_, index) => `{"type":"assistant/message","seq":${index},"time":${1000 + index},"data":{"turn":1,"step":1,"usage":{"inputTokens":1}}}`)
+    const bytes = container([HEADER_V4, ...events])
+    const read = decodeArtifactBytes(bytes, true)
+    expect(read.events).toHaveLength(60)
+    expect(read.cursor).toBe(bytes.length)
+    expect(read.torn).toBe(false)
+  })
+
   it('refuses a log written by a newer format than it understands', () => {
     const future = '{"type":"session","version":99,"id":"z","createdAt":1}'
     const read = decodeArtifactBytes(container([future, MESSAGE]), true)

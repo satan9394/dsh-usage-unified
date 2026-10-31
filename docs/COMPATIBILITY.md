@@ -7,7 +7,7 @@ Declared compatibility ranges and the evidence behind them.
 | Dimension | Supported | Declared in |
 | --- | --- | --- |
 | Node.js | `^22.19.0 \|\| >=24.0.0` | `package.json` → `engines.node` |
-| DeepSeek Harness | `0.1.5-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2` (verified); plugin API range `>=0.1.5-rc.2 <0.3.0` | `package.json` → `peerDependencies` (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-*`) |
+| DeepSeek Harness | `0.1.5-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-rc.5` (verified); plugin API range `>=0.1.5-rc.2 <0.3.0` | `package.json` → `peerDependencies` (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-*`) |
 | React | `^18.2.0` | `peerDependencies.react` |
 | Session log format | legacy `session.jsonl[.zstd]` **and** versioned `session.v<N>.jsonl[.zstd]`, v0–v4 | reader (`MAX_SUPPORTED_FORMAT`) |
 | Platform | Windows / macOS / Linux (reader + host are pure Node; the optional leaderboard task uses Windows Task Scheduler) | — |
@@ -42,7 +42,13 @@ The package ships its build output (`lib/index.js`, `lib/index.d.ts`,
 
 ## Evidence
 
-- `npm run check` (typecheck + 77 unit tests + build) passes.
+- `npm run check` (typecheck + 85 unit tests + build) passes.
+- **dsh 0.2.1-rc.5** was verified against a live install: the running host serves
+  the same `webServer` route contract, every session log on disk is `session.v4.
+  jsonl.zstd`, and `@deepseek-ai/dsh-session-format-catalog` still reports
+  `currentVersion: 4` with no v4→v5 migration published. The folded totals are
+  unchanged across the 0.2.0-rc.2 → 0.2.1-rc.5 upgrade (18,024,754,900 tokens on
+  this machine's history).
 - `npm run verify:realdata` reads this machine's real dsh homes in **both** log
   formats and cross-checks folded tokens against an independently coded
   reconstruction (exact match), over every fixed window (1d / 7d / 14d / 30d / all).

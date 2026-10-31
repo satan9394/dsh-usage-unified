@@ -129,7 +129,7 @@ Set these in the profile's plugin row (the bundle patch in
 | `indexChunkYieldMs` | `number` | `16` | Cooperative yield interval during a scan, so a cold build stays responsive. |
 | `indexConcurrency` | `number` | `4` | Sessions decoded in parallel. Measured: 2–4 is the sweet spot; 8+ regresses. |
 | `apiPath` | `string` | `/usage-unified/v1` | Same-origin read-only API prefix. |
-| `cachePath` | `string` | `$DSH_HOME/usage-unified/index-v1.json` | Index cache location. |
+| `cachePath` | `string` | `$DSH_HOME/usage-unified/index-v1.json` | Index cache location. Its extension is dropped to name the directory the per-session files live in (`index-v1/`); an existing single file is migrated once and kept as `index-v1.json.migrated`. |
 | `pricingPath` | `string` | `$DSH_HOME/usage-unified/pricing.json` | Cost table. Absent file means no cost is shown. |
 | `cacheWriteDelayMs` | `number` | `1000` | Debounce before the index is written. It is written only when it actually changed. |
 
@@ -140,8 +140,9 @@ bounds.
 
 - **Reads** — session logs under every discovered dsh home, and (for the cost estimate) one
   optional pricing file. Read-only: it never writes to a session or to another home.
-- **Writes** — exactly one file, the index cache at `$DSH_HOME/usage-unified/index-v1.json`,
-  atomically (temp + rename) with mode `0600`, and only when the index changed.
+- **Writes** — the index cache under `$DSH_HOME/usage-unified/`: one small file per session
+  (`index-v1/entries/`) plus `meta.json`, each written atomically (temp + rename) with mode
+  `0600`, and only for sessions that actually changed. Nothing else on disk is touched.
 - **Network** — none. The runtime makes no outbound request and opens no socket of its own. It
   registers one route on the harness-provided web server and answers **loopback callers only**
   (anything else gets `403`). Its imports are `node:fs/promises`, `node:path`, `node:os`,
@@ -192,8 +193,9 @@ Disclosed rather than hidden — the footer repeats the ones that apply to the c
   machine whose system zone differs from the user's, "today" means today in that zone; changing
   it forces a full rebuild.
 - **The call table is capped** by the configurable detail limit (default 1,000, max 10,000).
-- **A cold index takes minutes** on a large history (this machine: ~1,380 log files, ~790 MB
-  compressed). The panel renders partial results and reports progress.
+- **A cold index is the slow case** (this machine: ~1,400 log files, ~800 MB compressed, ~31 s).
+  The panel renders partial results and reports progress while it finishes, and a build
+  checkpoints finished sessions every few seconds, so a restart resumes instead of starting over.
 - **The activity heatmap was removed** — it duplicated the trend chart.
 
 ## Architecture
@@ -207,7 +209,8 @@ src/
   fold.ts           pure resumable fold: session → totals, day/hour slices, calls
   aggregate.ts      snapshot + session ranking + call rows + streaks/peak hour + CSV
   pricing.ts        optional pricing table: load, match by model id, cost + coverage
-  index-store.ts    incremental index (parallel decode), file-backed cache under DSH_HOME
+  index-store.ts    incremental index (parallel decode), progress + checkpointing
+  index-cache.ts    one small file per folded session, plus meta.json
   transport.ts      /snapshot, /calls (incl. ?session= drill-down), /export.* (loopback only)
   types.ts          the wire contract shared by both halves
   client/
@@ -227,9 +230,10 @@ Design decisions worth knowing (full rationale in [PLAN.md](./PLAN.md)):
 - **One row per `(turn, step)`.** A usage report arrives twice per step (a streaming chunk and
   the final message); the fold *replaces* rather than accumulates, and keeps one call row per
   step. Compaction summaries are their own rows.
-- **File-backed cache, no optional services.** The index persists to a plain file under
+- **File-backed cache, no optional services.** The index persists to plain files under
   `$DSH_HOME` rather than `ctx.storageDomain`, so a missing optional service can never stop the
-  panel from loading.
+  panel from loading. One file per session keeps a killed build from costing more than the
+  sessions it had not finished.
 - **No invented numbers.** Unpriced models are reported as unpriced; coverage, retried steps and
   skipped logs are always disclosed.
 
@@ -274,8 +278,9 @@ drops the heatmap for the same reason the panel did.
 - Platform: Windows, macOS and Linux. The optional leaderboard task uses Windows Task Scheduler;
   its scripts are cross-platform otherwise.
 - `dsh.compatibility` in `package.json` declares **only what has actually been verified**:
-  `>=0.1.5-rc.2 <0.1.6` with `dshReleases["0.1.5-rc.2"] = "compatible"`. A caret range is
-  deliberately not used — it would claim rc.3+ as well, which nobody has tested.
+  `>=0.1.5-rc.2 <0.3.0`, with every verified release pinned in `dshReleases` — currently
+  `0.1.5-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2` and `0.2.1-rc.5`. A bare caret range is deliberately
+  not used: it would claim releases nobody has tested.
 
 Details and the evidence behind each claim: [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md).
 
