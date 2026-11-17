@@ -1,7 +1,6 @@
 import Schema from "@deepseek-ai/schemastery";
 import { Context } from "@deepseek-ai/cordis";
 import { IncomingMessage, ServerResponse } from "node:http";
-//#region src/types.d.ts
 /**
  * Wire types shared by the host half and the browser half.
  *
@@ -298,8 +297,6 @@ declare function totalOf(buckets: Buckets): number;
 declare function addBuckets(target: Buckets, source: Buckets, sign?: 1 | -1): void;
 /** Add (or subtract) one tally into another in place. */
 declare function addTally(target: ModelTally, source: ModelTally, sign?: 1 | -1): void;
-//#endregion
-//#region src/fold.d.ts
 /** Bump when the fold's output shape or counting rules change: forces a full rebuild. */
 declare const FOLD_VERSION = 2;
 /**
@@ -459,8 +456,6 @@ declare function createFoldState(header: HeaderLike, home: string): FoldState;
 declare function foldEvents(state: FoldState, events: readonly EventLike[], options: FoldOptions): void;
 /** Whether a session did anything worth counting as a session. */
 declare function hasWork(fold: SessionFold): boolean;
-//#endregion
-//#region src/index-store.d.ts
 /** Tunables the store needs; all sourced from the plugin config. */
 interface IndexStoreOptions {
   /** Additional home directories the discovery heuristic cannot find. */
@@ -571,8 +566,6 @@ declare class UnifiedIndexStore {
   /** Flush the index immediately; used on host disposal. */
   flush(): Promise<void>;
 }
-//#endregion
-//#region src/transport.d.ts
 /** Minimal view of the route registry this module needs. */
 interface WebServerLike {
   register(route: {
@@ -592,8 +585,6 @@ interface WebServerLike {
 declare function registerRoutes(webServer: WebServerLike, store: UnifiedIndexStore, apiPath: string): () => void;
 /** The path segment the snapshot route answers on, for the client's reference. */
 declare const DEFAULT_API_PATH = "/usage-unified/v1";
-//#endregion
-//#region src/aggregate.d.ts
 /** Today-inclusive day bounds for a fixed-width range. */
 declare function rangeBounds(range: DayRange, today: string): {
   from: string;
@@ -676,8 +667,6 @@ interface CallsQuery extends SnapshotQuery {
 declare function collectCalls(input: readonly SessionFold[], query: CallsQuery): CallRecord[];
 /** CSV export of the per-day per-model series, mirroring the audit plugin's columns. */
 declare function exportCsv(days: readonly DayStats[], models: readonly ModelStats[]): string;
-//#endregion
-//#region src/pricing.d.ts
 /** One rate set: USD per million tokens, per bucket. */
 interface RateSet {
   input: number;
@@ -780,8 +769,6 @@ interface PricingInput {
  * never silently reads as "free".
  */
 declare function applyPricing(input: PricingInput, table: PricingTable | null): CostSummary | null;
-//#endregion
-//#region src/homes.d.ts
 /**
  * Enumeration of every dsh home on this machine (decision D1).
  *
@@ -841,8 +828,6 @@ interface DiscoveryOptions {
  * @returns usable homes (deduped by realpath) and unusable ones with a reason.
  */
 declare function discoverDshHomes(options: DiscoveryOptions): Promise<HomeDiscovery>;
-//#endregion
-//#region src/reader.d.ts
 /** One session log found on disk. */
 interface SessionArtifact {
   /** The home it belongs to. */
@@ -911,8 +896,6 @@ declare function decodeArtifactBytes(bytes: Buffer, compressed: boolean, fromCur
  * @param cachedHeader - the header from the initial full read, when resuming.
  */
 declare function readArtifact(path: string, fromCursor: number, cachedHeader?: HeaderLike): Promise<ArtifactRead>;
-//#endregion
-//#region src/zstd-frames.d.ts
 /**
  * Frame scanner for the session-log container.
  *
@@ -959,8 +942,6 @@ interface ZstdFrameScan {
  * not a torn tail, and must not be silently treated as end-of-data.
  */
 declare function scanZstdFrames(buffer: Buffer, maxFrames?: number): ZstdFrameScan;
-//#endregion
-//#region src/index.d.ts
 declare const name = "usage-unified";
 /** Plugin configuration. */
 interface Config {
@@ -1003,5 +984,4 @@ declare const Config: Schema<Config>;
  * @param config - validated configuration.
  */
 declare function apply(ctx: Context, config: Config): void;
-//#endregion
 export { ApiError, Buckets, CallRecord, CallsPage, Config, CostSummary, Costed, Coverage, DEFAULT_API_PATH, DEFAULT_PEAK_SHARE, DayRange, DayStats, FOLD_VERSION, HomeInfo, IndexPhase, IndexStatus, ModelStats, ModelTally, RangeId, RangeInfo, SessionStats, Snapshot, TaskScope, TimeBucket, TokenBreakdown, TokenTotals, UnifiedIndexStore, addBuckets, addTally, aggregateSnapshot, apply, applyPricing, collectCalls, costOf, createFoldState, decodeArtifactBytes, discoverDshHomes, exportCsv, foldEvents, hasWork, isSubtask, loadPricing, logPriority, lookupPrice, name, normalizeModelId, parsePricing, peakHourOf, rangeBounds, readArtifact, registerRoutes, scanZstdFrames, streaks, totalOf, walkSessionArtifacts, zeroBuckets, zeroTally };
