@@ -1,5 +1,11 @@
 # Merge plan — `dsh-usage-unified`
 
+> **Status (2026-11-23):** implemented and shipped as 0.6.1, currently verified
+> against dsh 0.2.2-rc.5. This page is the original design record and keeps the
+> harness state it was written against (0.1.5 / 0.2.0-rc.2, whose logs were
+> format v3); the live claims — supported releases, session format, plugin API
+> range — are maintained in [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md).
+
 ## Goal
 
 The two upstream plugins overlap but neither is a superset, so a user must

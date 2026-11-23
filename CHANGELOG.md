@@ -4,6 +4,32 @@ Notable changes per release, newest first. The same text is on each
 [release](https://github.com/satan9394/dsh-usage-unified/releases); this file is the
 one place to read them in order.
 
+## 0.6.1 — 2026-11-23
+
+- **dsh 0.2.2-rc.5 verified (the `latest` tag).** The session format is still v4
+  and every API this plugin consumes kept its shape: `dsh-home-paths` is
+  unchanged, the client slot maps only gained entries, and the `webServer`
+  registration the plugin makes (`{ kind: 'prefix', path, handler }`) is
+  untouched. `dsh.compatibility.dshReleases` gained `0.2.2-rc.1` and
+  `0.2.2-rc.5`, and the dev dependencies moved to the 0.2.2-rc.5 line. The
+  plugin API range now ends at `0.2.3-0` instead of `0.3.0-0`: the harness
+  compares versions with `includePrerelease`, so the old upper bound would have
+  admitted `0.2.3-alpha.2`, which has never been tested.
+- **`dsh.client.inject` no longer names `@deepseek-ai/dsh-client-runtime`,**
+  and the matching `peerDependencies` entry went with it. 0.2.2 dropped that
+  frontend module id from the install tree and from every package manifest, so
+  both named a module that could never resolve.
+- **The client packages' `cordis` peer moved `~4.0.5` → `~4.1.0`,** so the dev
+  dependency follows (4.0.5 → 4.1.0). `npm ls @deepseek-ai/cordis` no longer
+  reports an invalid peer; the plugin's own peer (`^4.0.4`) already admitted
+  both.
+- Verified end to end on the live `web` profile (which links this repo): the boot
+  gate loads the bundle with no skip or deny line, the loopback routes answer
+  200/404 as before, and a headless Chromium run renders the sidebar button and
+  the 5-panel dialog with no console error. `verify:realdata` matches exactly
+  (18,143,047,071 tokens over 1,509 logs) and `smoke:local` passes all 10
+  assertions.
+
 ## 0.6.0 — 2026-10-30
 
 - **dsh 0.2.1-rc.5 verified.** The session format is still v4

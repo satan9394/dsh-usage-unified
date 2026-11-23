@@ -12,7 +12,7 @@
  *    `decodeStorageRecord`, which has moved between releases.
  *  - the versioned backend writes `session.v<version>.jsonl[.zstd]`, whose
  *    lines are already plain events. Format v4 (dsh 0.2.0-rc.2's
- *    `SESSION_FORMAT_VERSION`, still current in 0.2.1-rc.5 — the format
+ *    `SESSION_FORMAT_VERSION`, still current in 0.2.2-rc.5 — the format
  *    catalog reports `currentVersion: 4` and no v4→v5 migration exists) keeps
  *    the v3 event envelope — `{type, seq, time, data}` — and the
  *    `assistant/message.data.usage` payload
@@ -40,7 +40,7 @@ import type { EventLike, HeaderLike } from './fold.ts'
 import type { DshHome } from './homes.ts'
 import { scanZstdFrames } from './zstd-frames.ts'
 
-/** Highest session format version this reader understands (v4 = dsh 0.2.0-rc.2 … 0.2.1-rc.5). */
+/** Highest session format version this reader understands (v4 = dsh 0.2.0-rc.2 … 0.2.2-rc.5). */
 export const MAX_SUPPORTED_FORMAT = 4
 
 /** Any canonical session log name: `session.jsonl`, `session.jsonl.zstd`, `session.v3.jsonl.zstd`. */

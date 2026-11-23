@@ -70,8 +70,9 @@ one index feeds one dashboard and the numbers agree everywhere:
 
 ## Requirements
 
-- `dsh` 0.1.5-rc.1 or newer on the plugin API (see [Compatibility](#compatibility)).
-- Node `^22.19.0 || >=24.0.0` — the runtime the harness itself uses.
+- `dsh` 0.1.5-rc.1 or newer on the plugin API, below 0.2.3 (see [Compatibility](#compatibility)).
+- Node `^22.19.0 || >=24.0.0` for the plugin's own code; a dsh 0.2.2-rc.5 host additionally
+  requires Node `>=24.9.0` on its own account.
 - No runtime dependencies. `react` and the `@deepseek-ai/*` modules are peers, provided by the
   harness.
 
@@ -272,14 +273,15 @@ drops the heatmap for the same reason the panel did.
 
 ## Compatibility
 
-- Plugin API: the `@deepseek-ai/*` `peerDependencies` (currently `^0.1.5-rc.1`); Node
-  `^22.19.0 || >=24.0.0`.
+- Plugin API: the `@deepseek-ai/*` `peerDependencies` (`^0.1.5-rc.1 || >=0.2.0-rc.1 <0.2.3-0`); Node
+  `^22.19.0 || >=24.0.0` (the host harness brings its own, stricter requirement — `>=24.9.0` for dsh
+  0.2.2-rc.5).
 - Session logs: legacy `session.jsonl[.zstd]` **and** versioned `session.v<N>.jsonl[.zstd]`.
 - Platform: Windows, macOS and Linux. The optional leaderboard task uses Windows Task Scheduler;
   its scripts are cross-platform otherwise.
 - `dsh.compatibility` in `package.json` declares **only what has actually been verified**:
-  `>=0.1.5-rc.2 <0.3.0`, with every verified release pinned in `dshReleases` — currently
-  `0.1.5-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2` and `0.2.1-rc.5`. A bare caret range is deliberately
+  `>=0.1.5-rc.2 <0.2.3-0`, with every verified release pinned in `dshReleases` — currently
+  `0.1.5-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, `0.2.1-rc.5`, `0.2.2-rc.1` and `0.2.2-rc.5`. A bare caret range is deliberately
   not used: it would claim releases nobody has tested.
 
 Details and the evidence behind each claim: [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md).

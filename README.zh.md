@@ -60,8 +60,8 @@ harness 自带的投影只覆盖它当前运行的那个 home。
 
 ## 环境要求
 
-- `dsh` 插件 API 0.1.5-rc.1 或更新（见[兼容性](#兼容性)）。
-- Node `^22.19.0 || >=24.0.0`——即 harness 自身使用的运行时。
+- `dsh` 插件 API 0.1.5-rc.1 或更新、低于 0.2.3（见[兼容性](#兼容性)）。
+- 插件自身代码要求 Node `^22.19.0 || >=24.0.0`；宿主 dsh 0.2.2-rc.5 另有更严的要求 `>=24.9.0`。
 - 无运行时依赖。`react` 与 `@deepseek-ai/*` 均为 peer，由 harness 提供。
 
 ## 安装
@@ -234,11 +234,12 @@ npm run report:30d        # 同上，近 30 天
 
 ## 兼容性
 
-- 插件 API：`@deepseek-ai/*` 的 `peerDependencies`（当前 `^0.1.5-rc.1`）；Node `^22.19.0 || >=24.0.0`。
+- 插件 API：`@deepseek-ai/*` 的 `peerDependencies`（`^0.1.5-rc.1 || >=0.2.0-rc.1 <0.2.3-0`）；Node `^22.19.0 || >=24.0.0`
+  （宿主 harness 自带更严的 `engines.node`，dsh 0.2.2-rc.5 是 `>=24.9.0`）。
 - 会话日志：旧格式 `session.jsonl[.zstd]` **与**版本化 `session.v<N>.jsonl[.zstd]`。
 - 平台：Windows / macOS / Linux。仅可选的排行榜任务使用 Windows 计划任务，其余脚本跨平台。
-- `package.json` 的 `dsh.compatibility` **只声明实际验证过的版本**：范围 `>=0.1.5-rc.2 <0.3.0`，
-  已逐版登记在 `dshReleases` —— 目前是 `0.1.5-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-rc.5`。
+- `package.json` 的 `dsh.compatibility` **只声明实际验证过的版本**：范围 `>=0.1.5-rc.2 <0.2.3-0`，
+  已逐版登记在 `dshReleases` —— 目前是 `0.1.5-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2`、`0.2.1-rc.5`、`0.2.2-rc.1`、`0.2.2-rc.5`。
   刻意不用裸 `^`——那会顺带声称没测过的版本也兼容。
 
 各条声明背后的证据见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)。
